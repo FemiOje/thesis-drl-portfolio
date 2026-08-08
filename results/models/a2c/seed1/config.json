@@ -1,0 +1,19 @@
+{
+  "algo": "a2c",
+  "seed": 1,
+  "steps": 300000,
+  "commission": 0.0025,
+  "episode_length": 250,
+  "hparams": {
+    "learning_rate": 0.0007,
+    "n_steps": 16,
+    "gamma": 0.99,
+    "gae_lambda": 1.0,
+    "ent_coef": 0.0
+  },
+  "best_val_logreturn": 0.167067,
+  "best_val_fapv": 1.181833445496644,
+  "elapsed_sec": 500.8,
+  "best_model": "C:\\Users\\DELL\\Desktop\\thesis-drl-portfolio\\results\\models\\a2c\\seed1\\best_model.zip",
+  "final_model": "C:\\Users\\DELL\\Desktop\\thesis-drl-portfolio\\results\\models\\a2c\\seed1\\final_model.zip"
+}

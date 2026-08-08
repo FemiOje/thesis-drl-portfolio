@@ -1,0 +1,21 @@
+{
+  "algo": "ppo",
+  "seed": 3,
+  "steps": 300000,
+  "commission": 0.0025,
+  "episode_length": 250,
+  "hparams": {
+    "learning_rate": 0.0003,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "ent_coef": 0.0
+  },
+  "best_val_logreturn": 0.169013,
+  "best_val_fapv": 1.184135532585834,
+  "elapsed_sec": 21596.6,
+  "best_model": "C:\\Users\\DELL\\Desktop\\thesis-drl-portfolio\\results\\models\\ppo\\seed3\\best_model.zip",
+  "final_model": "C:\\Users\\DELL\\Desktop\\thesis-drl-portfolio\\results\\models\\ppo\\seed3\\final_model.zip"
+}
