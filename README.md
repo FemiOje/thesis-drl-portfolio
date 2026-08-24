@@ -349,21 +349,6 @@ the policy.* This is a controlled experiment by design, not an unfinished one.
 
 ---
 
-## 10. Open items for your decision
-
-1. **Data source** — yfinance vs the Microsoft source you recommended. One
-   function to change, but it invalidates every trained checkpoint.
-2. **PG → A2C substitution** — SB3 has no bare REINFORCE, so A2C stands in. This
-   is the one substitution that weakens the direct comparison with Liang et al.,
-   whose headline result is specifically about PG. Given A2C proved market-blind
-   here, the substitution now carries more weight than it did.
-3. **Framing** — the approved plan was a three-algorithm comparison. The result is
-   better described as a diagnostic study: architecture dominates algorithm, and
-   conventional metrics hide degeneracy. This is a change of emphasis worth
-   confirming before the chapter is written.
-4. **DDPG at n=2** — whether to spend ~16 h completing seeds 2–4 for symmetry,
-   given four independent demonstrations of the same freeze.
-
 ### Verification status
 
 Environment unit tests 7/7. Benchmark cost accounting agrees with closed-form
