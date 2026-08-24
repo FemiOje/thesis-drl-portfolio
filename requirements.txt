@@ -1,17 +1,19 @@
-# Environment that produced the reported results (Windows, Python 3.12).
+# Pinned to the versions declared in the thesis, Chapter 3 §3.3.
 #
-# numpy==1.26.4 is a RECORD, not a constraint. stable-baselines3 2.9.0 declares
-# numpy<3.0,>=1.20 and nothing in this codebase uses a numpy-2-removed alias, so
-# numpy 2.x works fine. Do NOT apply this pin on Colab: its pandas and torch are
-# compiled against numpy 2.x and downgrading breaks them with
-#   ValueError: numpy.dtype size changed, may indicate binary incompatibility
-# See notebooks/colab_results.ipynb, which installs only what Colab lacks.
-torch==2.13.0
-stable-baselines3==2.9.0
-gymnasium==1.0.0
-numpy==1.26.4
-pandas==2.3.3
-yfinance==1.5.2
-matplotlib==3.11.1
-tensorboard==2.21.0
-pytest==9.1.1
+# REQUIRES PYTHON 3.10. numpy 1.24.3, pandas 2.0.3 and torch 2.1.0 publish no
+# cp312 wheels, so `pip install -r requirements.txt` fails outright on Python 3.12.
+# See docs/IMPLEMENTATION_PLAN.md §9.
+
+numpy==1.24.3
+pandas==2.0.3
+torch==2.1.0
+gymnasium==0.29.1
+stable-baselines3==2.2.1
+yfinance==0.2.28
+matplotlib==3.7.2
+seaborn==0.12.2
+scipy==1.11.4
+
+# Tooling (not thesis-declared)
+PyYAML==6.0.1
+pytest==7.4.4

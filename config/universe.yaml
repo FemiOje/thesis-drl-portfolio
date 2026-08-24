@@ -1,0 +1,70 @@
+# Asset universe: the RULE, not a hand-picked list.
+# See docs/IMPLEMENTATION_PLAN.md §0.
+#
+# Sectors below are pre-specified on ECONOMIC grounds. They are never chosen from
+# realised correlations, which would be data snooping on the study window. Within
+# each sector the constituent is then determined mechanically, leaving no discretion.
+
+rule:
+  as_of: 2021-09-01
+  criterion: largest S&P 500 constituent by market capitalisation within the sector
+  exclusions:
+    - diversified holding companies   # e.g. BRK.B — itself a portfolio, confounds the study
+  requires: complete daily price history across data.start..data.end
+  taxonomy_note: >
+    GICS as of 2021 has ELEVEN sectors. Real Estate separated from Financials in 2016
+    and Communication Services was created in 2018, so GOOGL/META sit in Communication
+    Services, not Information Technology.
+
+sectors:
+  - name: Information Technology
+    driver: long-duration growth
+    candidates: [AAPL, MSFT]
+  - name: Financials
+    driver: rate-sensitive, positive — net interest margin widens as rates rise
+    candidates: [JPM]
+  - name: Utilities
+    driver: rate-sensitive, negative — bond proxy; deliberate opposite of Financials
+    candidates: [NEE]
+  - name: Energy
+    driver: commodity and inflation exposure; decoupled from duration
+    candidates: [XOM]
+  - name: Health Care
+    driver: defensive — demand largely independent of the cycle
+    candidates: [JNJ, UNH]
+  - name: Consumer Staples
+    driver: defensive, low beta — inelastic demand
+    candidates: [PG, WMT]
+  - name: Consumer Discretionary
+    driver: cyclical consumer demand
+    candidates: [AMZN, HD]
+  - name: Industrials
+    driver: cyclical capex and freight activity
+    candidates: [HON, UNP, UPS]
+
+excluded_sectors:
+  - name: Communication Services
+    reason: >
+      Driver duplication. Its mega-caps (GOOGL, META) are advertising-funded growth
+      businesses duplicating Information Technology's factor; its telecoms (VZ, T)
+      duplicate Utilities' rate sensitivity. Adds a sector without adding a driver.
+  - name: Materials
+    reason: Driver duplication — largely cyclical, already covered by Industrials.
+  - name: Real Estate
+    reason: Driver duplication — rate-sensitive, already covered by Utilities.
+
+# Pre-registered before any run. Recorded here so the commit history proves it was
+# fixed in advance rather than chosen after seeing results.
+correlation_gate:
+  threshold: 0.70
+  metric: pairwise correlation of simple daily returns
+  measured_on: train      # training split ONLY — measuring on test would be look-ahead
+  action: substitute the next-largest constituent in the affected sector, then re-check
+  result: null            # written by scripts/01_build_data.py
+
+# Written by scripts/01_build_data.py in Phase 1. Left null so that a missing
+# resolution fails loudly rather than silently falling back to the candidate lists.
+resolved:
+  tickers: null
+  market_caps_as_of: null
+  resolved_on: null
