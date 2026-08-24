@@ -48,3 +48,12 @@ checkpoints/
 Thumbs.db
 .vscode/
 .idea/
+
+# --- Colab reproduction bundle (see notebooks/colab_results.ipynb) ---
+# The notebook clones this repo and regenerates every table and figure, so the
+# inputs it needs must be tracked even though the patterns above exclude them:
+#   * raw CSVs  -> otherwise data_loader re-downloads and the data differs
+#   * best_model.zip -> the 12 primary-sweep checkpoints (~16 MB total)
+# final_model.zip stays ignored; only best-on-validation is ever evaluated.
+!data/raw/*.csv
+!results/models_conv/*/*/best_model.zip
