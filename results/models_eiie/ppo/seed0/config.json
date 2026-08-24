@@ -1,0 +1,22 @@
+{
+  "algo": "ppo",
+  "seed": 0,
+  "steps": 300000,
+  "commission": 0.0025,
+  "episode_length": 250,
+  "extractor": "eiie",
+  "hparams": {
+    "learning_rate": 0.0003,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "ent_coef": 0.0
+  },
+  "best_val_logreturn": 0.299684,
+  "best_val_fapv": 1.3494323195814613,
+  "elapsed_sec": 711.1,
+  "best_model": "results/models_eiie\\ppo\\seed0\\best_model.zip",
+  "final_model": "results/models_eiie\\ppo\\seed0\\final_model.zip"
+}

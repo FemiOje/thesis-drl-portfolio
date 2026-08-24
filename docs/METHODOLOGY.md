@@ -72,9 +72,7 @@ impact), **§3.1** (survival-bias avoidance in asset preselection), **§3.2**
 
 * **Source.** `data_loader._download_raw` is the **only** function that touches
   an external provider (currently yfinance, `auto_adjust=True` → split- and
-  dividend-adjusted OHLC). Swapping providers — e.g. to the Microsoft source the
-  supervisor suggested — touches this one function and nothing else.
-  *This remains an open item with the supervisor.*
+  dividend-adjusted OHLC).
 * **Universe (fixed, approved).** 8 large-cap S&P 500 constituents across
   sectors: AAPL, MSFT, JPM, JNJ, XOM, PG, AMZN, NVDA, plus cash → `m + 1 = 9`.
   Liquidity is the justification: these are among the most heavily traded US
@@ -191,14 +189,61 @@ The four mandated tests plus three guardrails:
 
 ## 6. Algorithms
 
-Three Stable-Baselines3 agents, all on `MultiInputPolicy` with default network
-sizes, per the plan's "working end-to-end with defaults first" guard.
+Three Stable-Baselines3 agents, all on `MultiInputPolicy`.
 
 | Plan name | Implementation | Role in the comparison |
 |---|---|---|
 | PPO | `stable_baselines3.PPO` | stochastic policy-gradient representative |
-| DDPG | `stable_baselines3.DDPG` | deterministic actor-critic; Gaussian `NormalActionNoise`, σ = 0.3 on the ±10 action space |
+| DDPG | `stable_baselines3.DDPG` | deterministic actor-critic; Gaussian `NormalActionNoise`, σ = 0.3 |
 | **PG** | `stable_baselines3.A2C` | vanilla policy-gradient baseline — **see mapping note** |
+
+### 6.1 Feature extractor — the primary intervention
+
+`MultiInputPolicy` is mandatory because the observation is a `Dict`; `MlpPolicy`
+raises on `Dict` spaces. But that choice silently determines how the price
+tensor reaches the network, and the default is destructive (§9.2).
+
+| | Ablation | **Primary** |
+|---|---|---|
+| Class | SB3 `CombinedExtractor` | `AssetSharedConvExtractor` |
+| Treatment of `X` | `nn.Flatten()` → 1200 loose inputs | two convolutions, kernels `(k, 1)` |
+| Features into the MLP | 1209 | **169** |
+| Encoder parameters | 77,376 (first MLP layer alone) | **1,960** |
+
+The kernels span *k timesteps × 1 asset*. Because width over the asset axis is
+1, the same filter is applied to every asset column independently — Jiang's
+Identical Independent Evaluators property. Two consequences worth stating:
+parameter count is independent of `m` (a 9th stock changes nothing), and every
+asset's history trains the same kernels, so effective samples per parameter are
+`m` times larger.
+
+Shapes for the 8-asset universe:
+
+```
+X            (B,  3, 50, 8)
+conv1 (3,1)  (B,  2, 48, 8)    2 filters over a 3-day span, per asset
+conv2 (48,1) (B, 20,  1, 8)    collapses the remaining time axis
+flatten      (B, 160)
++ w_prev     (B, 169)          -> features_dim
+```
+
+Selected with `--extractor {flatten,conv}`; recorded in every `config.json`.
+`flatten` remains the CLI default so the ablation stays reproducible.
+
+### Action bound
+
+`ACTION_BOUND` was 10 in the ablation and **5** in the primary sweep. Softmax is
+shift-invariant, so this constrains the *spread* between highest and lowest score
+(2·bound), not the absolute score. The value was chosen by measurement: a working
+PPO policy uses a spread of 6.90, so ±5 (spread 10) leaves ~45% headroom while
+still permitting 99.96% concentration in one asset. At ±10 a saturated action
+produces a 485,000,000:1 allocation ratio; at ±5, 22,000:1.
+
+It is a per-environment parameter (`make_env(..., action_bound=...)`), so the
+ablation environment remains reproducible. Note that evaluating an old checkpoint
+needs no special handling: SB3 clips predictions to the model's own stored action
+space, which travels inside the `.zip`, and this environment never clips what it
+is handed.
 
 ### The PG → A2C mapping
 
@@ -253,9 +298,42 @@ exposed as CLI flags, and they were tuned **on validation only**.
 
 ## 7. Training protocol
 
-* **300,000 timesteps per seed, 5 seeds (0–4) per algorithm**, all three
-  algorithms on an **equal step budget**. Results are reported as mean ± std
-  across seeds; single-seed numbers are not reported as findings.
+Two sweeps were run. The **primary** sweep is the reported result; the
+**ablation** is retained because it motivates the primary one.
+
+| | Ablation | **Primary** |
+|---|---|---|
+| Feature extractor | SB3 `CombinedExtractor` (flattens `X`) | `AssetSharedConvExtractor` (§6.1) |
+| Timesteps per seed | 300,000 | 500,000 |
+| Action bound | ±10 | ±5 |
+| Seeds | 5 × 3 algorithms | 5 (PPO, A2C), 2 (DDPG) |
+| Checkpoints | `results/models/` | `results/models_conv/` |
+| Results | `results/evaluation/` | `results/evaluation_conv/` |
+
+Both sweeps hold every other variable fixed: same data, same splits, same
+commission, same checkpoint criterion, same evaluation code path.
+
+### Why DDPG stops at n=2
+
+DDPG seed 0 ran 475k steps in 295 minutes and froze; seed 1 froze at the
+*identical* validation value (1.2390). Combined with the ablation sweep and a
+100k probe, that is **four independent demonstrations of the same saturation
+failure** across two action bounds and two feature extractors. The remaining
+three seeds would have cost ~16 hours to produce three more frozen policies. The
+run was stopped deliberately; n=2 is labelled wherever DDPG is reported, and no
+mean ± std claim is made from it.
+
+### Freeze guard
+
+Any run whose validation has not improved for 8 consecutive evaluations is
+stopped (`--freeze-patience`, SB3 `StopTrainingOnNoModelImprovement`, minimum 10
+evaluations before it can fire). It triggered on 6 of 12 primary runs — including
+4 of 5 A2C seeds, which independently corroborates the market-blindness finding
+in §9.2. It saved ~5% of compute, since affected runs improved slowly until
+roughly 275k steps before stalling.
+
+* Results are reported as mean ± std across seeds; single-seed numbers are not
+  reported as findings.
 * Training runs on the **train** split only, as random ~250-step sub-windows.
 * **Best-on-validation checkpointing.** An SB3 `EvalCallback` runs one
   deterministic full pass over the **validation** split every `steps/20`
@@ -266,18 +344,42 @@ exposed as CLI flags, and they were tuned **on validation only**.
 * TensorBoard logs to `results/tensorboard/`; a full run record
   (`config.json`) and the validation curve (`evaluations.npz`) are saved per seed.
 
-### Step-budget decision (2026-07-25, reaffirmed 2026-07-30)
+### Step-budget history
 
-PPO's validation curve was still rising at 300k, so a supplementary 500k run was
-done on Colab: **PPO 500k reached 1.2154 ± 0.0074 on validation**, a
-non-overlapping improvement over PPO 300k (1.185 ± 0.008). The head-to-head
-comparison nonetheless uses **300k for all three algorithms**, because an equal
-step budget is the defensible protocol. The 500k result is reported as a
-supplementary *"more steps help PPO"* finding, not as part of the comparison.
-A2C/DDPG were not run at 500k — deliberately out of scope, not unfinished.
+The ablation sweep used 300k for all three algorithms, an equal budget being the
+defensible protocol. PPO's validation curve was still rising there (+0.0242 fAPV
+per 100k), so the primary sweep was raised to **500k for all algorithms** —
+still equal, and enough for PPO to plateau.
 
-Validation results at 300k (best-on-validation fAPV, mean ± std over 5 seeds):
-**A2C 1.228 ± 0.023 · PPO 1.185 ± 0.008 · DDPG 1.100 ± 0.033.**
+Convergence at the primary budget (slope of the validation curve over its final
+third, fAPV per 100k):
+
+| Algorithm | Ablation @300k | **Primary @500k** |
+|---|---|---|
+| PPO | +0.0242 (still rising) | **−0.0286 (plateaued)** |
+| A2C (PG) | +0.0035 (plateaued) | **+0.0273 (still rising)** |
+| DDPG | ≈0 (frozen) | ≈0 (frozen) |
+
+The two policy-gradient methods **swapped convergence behaviour** when the
+encoder changed. This creates one caveat that must be stated in the write-up:
+**A2C is compared at a budget it had not converged at.** Since every A2C policy
+is market-blind (§9.2), further steps would plausibly refine a constant
+allocation rather than produce trading — but that is an expectation, not a
+measurement, and should not be presented as one.
+
+Best-on-validation fAPV, mean ± std over seeds:
+
+| | Ablation @300k | **Primary @500k** |
+|---|---|---|
+| PPO | 1.185 ± 0.008 | **1.3288 ± 0.1499** |
+| A2C (PG) | 1.228 ± 0.023 | 1.2580 ± 0.0224 |
+| DDPG | 1.100 ± 0.033 | 1.1868 ± 0.0739 (n=2) |
+
+PPO's standard deviation grew 16× (±0.009 → ±0.150). This is a **feature, not a
+defect**: the ablation seeds agreed closely because they all converged to the
+same constant portfolio. Once policies actually trade, different seeds find
+different strategies and disagree. Tight seed variance was a symptom of the
+degeneracy, not evidence of stability.
 
 ---
 
@@ -335,42 +437,53 @@ single opening trade amortized over the window.
 
 ## 9. Results
 
-Full tables in [`results/evaluation/test/RESULTS.md`](../results/evaluation/test/RESULTS.md).
-Test window, 187 steps, `c = 0.25%`, mean ± std over 5 seeds:
+Full tables in
+[`results/evaluation_conv/test/RESULTS.md`](../results/evaluation_conv/test/RESULTS.md)
+(primary) and [`results/evaluation/test/RESULTS.md`](../results/evaluation/test/RESULTS.md)
+(ablation). Test window, 187 steps, `c = 0.25%`:
+
+**Primary sweep** (conv encoder, 500k, ±5):
 
 | Strategy | fAPV | Sharpe | MDD | Turnover |
 |---|---|---|---|---|
-| PPO | 1.1507 ± 0.0108 | 1.003 ± 0.092 | 11.64 ± 1.11% | 0.0208 |
-| A2C (PG) | 1.1033 ± 0.1532 | 0.451 ± 0.697 | 21.93 ± 4.83% | 0.0128 |
-| DDPG | 1.1450 ± 0.0603 | 1.464 ± 0.702 | 9.93 ± 3.61% | 0.0200 |
-| Buy & Hold | 1.1506 | 1.852 | 5.64% | 0.0107 |
+| PPO (n=5) | **1.2074 ± 0.0893** | 1.325 ± 0.312 | 12.30% | 0.0936 |
+| A2C (PG) (n=5) | 1.1982 ± 0.0341 | 0.988 ± 0.319 | 15.26% | 0.0174 |
+| DDPG (n=2) | 1.1720 ± 0.0040 | 1.207 ± 0.654 | 14.20% | 0.0165 |
+| Buy & Hold | 1.1506 | **1.852** | **5.64%** | 0.0107 |
 | UCRP | 1.1532 | 1.793 | 6.04% | 0.0226 |
 | Best stock (hindsight, XOM) | 1.3975 | 1.811 | 20.11% | 0.0107 |
 | All-cash | 1.0000 | n/a | 0.00% | 0.0000 |
 
-Four findings the write-up should state plainly:
+**Ablation** (SB3 default extractor, 300k, ±10), for contrast:
 
-1. **No agent beats the passive benchmarks on risk-adjusted return.** All three
-   land at or below UCRP and Buy-and-Hold on fAPV while carrying roughly 2–4×
-   the drawdown, so every agent Sharpe sits well below the benchmarks' ~1.8. The
-   agents reach a comparable return by taking materially more risk.
-2. **The validation ranking did not survive the test window.** Validation said
-   A2C > PPO > DDPG; test says PPO ≈ DDPG > A2C. A2C's advantage was specific to
-   the validation window — a clean demonstration of why the split was held out.
-3. **Seed variance dominates the gaps between algorithms.** A2C seed 1 collapses
-   to fAPV 0.8293 (Sharpe −0.795) while its other four seeds sit tightly near
-   1.17; DDPG spans 1.0899–1.2439. PPO is by far the most stable
-   (1.1407–1.1686), consistent with its tight validation spread. Any single-seed
-   claim here would have been noise.
-4. **The learned policies are not merely near-static — they are constant.**
-   The allocation heatmaps show flat weights across all 187 steps, and direct
-   measurement (**§9.2**) confirms all 15 policies emit the same weight vector
-   every day and ignore the price tensor entirely. The agents converge to a
-   fixed allocation and rebalance to it daily (turnover ~0.01–0.02/step) rather
-   than timing the market. A2C's median seed sits at ~100% NVDA; PPO's holds
-   ~60% NVDA plus a spread. With this observation space and reward, the agents
-   learn *an allocation*, not a *strategy* — the central finding of the chapter,
-   and the one that reframes findings 1–3.
+| Strategy | fAPV | Sharpe | MDD |
+|---|---|---|---|
+| PPO | 1.1507 ± 0.0108 | 1.003 ± 0.092 | 11.64% |
+| A2C (PG) | 1.1033 ± 0.1532 | 0.451 ± 0.697 | 21.93% |
+| DDPG | 1.1450 ± 0.0603 | 1.464 ± 0.702 | 9.93% |
+
+Findings the write-up should state plainly:
+
+1. **Architecture dominated algorithm choice.** Under the default extractor all
+   three algorithms were statistically indistinguishable *because all were
+   constant policies* (§9.2). Changing only the encoder lifted every algorithm
+   above the passive benchmarks on return: PPO 1.1507 → 1.2074, A2C 1.1033 →
+   1.1982, DDPG 1.1450 → 1.1720. No hyperparameter or algorithm change in this
+   project moved the results remotely as much.
+2. **All agents now beat the benchmarks on return; none on risk.** PPO returns
+   29.04% annualized against Buy & Hold's 20.81%, but Buy & Hold's Sharpe of
+   1.852 beats every agent and its 5.64% drawdown is under half PPO's 12.30%.
+   The objective (§6) has no risk term, so the agents optimized precisely what
+   they were asked to. The defensible claim is *"beats the benchmarks on return,
+   not on risk-adjusted return."*
+3. **No PPO-vs-A2C ranking is defensible.** 1.2074 vs 1.1982 is a 0.009 gap
+   against a PPO standard deviation of 0.089 at n=5, and two of five PPO seeds
+   fall below Buy & Hold. The informative difference between them is the
+   diagnostic (§9.2), not the fAPV.
+4. **Turnover separates trading from allocating.** PPO trades at 0.0936 per step,
+   roughly 5× A2C and DDPG and 9× Buy & Hold. It is the only algorithm that
+   meaningfully rebalances — and the only one that passes the market-response
+   probe.
 
 ### 9.1 Comparison with Liang et al. (2018)
 
@@ -387,82 +500,123 @@ and disagree on one — all four are worth a paragraph in the discussion chapter
   work's agents likewise fail to beat passive benchmarks on risk-adjusted return
   (finding 1).
 * **Instability across runs.** They report that "deep reinforcement learning is
-  highly sensitive so that its performance is unstable" — the same phenomenon as
-  this work's finding 3, where seed variance dominates the gaps between
-  algorithms (A2C seed 1 at fAPV 0.8293 against ~1.17 for its other four seeds).
+  highly sensitive so that its performance is unstable." Seed variance dominates
+  here too: PPO's test seeds span 1.0981–1.3417, and its validation standard
+  deviation grew 16× once policies stopped being constant.
 * **Degenerate, concentrated allocations.** They report "the degeneration of our
   reinforcement learning agent, which often tends to buy only one asset at a
-  time." This is precisely finding 4: the allocation heatmaps here show
-  near-static weights, with A2C's median seed sitting at ~100% NVDA. Two
-  independent implementations, two different markets, the same failure mode —
-  this is the strongest external support for the chapter's central observation.
-* **Beating UCRP requires more than the stock algorithms.** Their PG agent
-  outperforms UCRP only *after* the Adversarial Training modification. This
-  work implements no such modification, and correspondingly no agent beats UCRP
-  (1.1532) — consistent rather than contradictory.
+  time." This work's §9.2 measures the same failure directly and finds it in
+  **15 of 15** default-extractor agents and **8 of 12** even after the fix. Two
+  independent implementations, two markets, the same failure mode — the
+  strongest external support for the chapter's central observation.
+* **DDPG is the weakest of the three.** Both works place DDPG last. This work
+  additionally explains *why* — actor saturation against the action bounds,
+  reproduced across two bounds and two extractors (§9.2).
 
-**Where the results disagree:**
+**Where the results diverge:**
 
-* **Algorithm ranking.** Liang et al. conclude that "PG is more desirable in
-  financial market than DDPG and PPO, although both of them are more advanced."
-  This work's test window gives the opposite order: PPO (1.1507) ≈ DDPG (1.1450)
-  > A2C/PG (1.1033), with PPO also the most stable across seeds.
+* **Beating UCRP.** Their PG agent outperforms UCRP only *after* Adversarial
+  Training. This work implements no such modification, yet all three algorithms
+  beat UCRP on **return** once the encoder is fixed (PPO 1.2074 vs 1.1532) —
+  while still losing to it on **Sharpe**. The disagreement is narrower than it
+  looks: on risk-adjusted terms, the original agreement holds.
+* **Algorithm ranking.** They conclude "PG is more desirable in financial market
+  than DDPG and PPO." This work cannot confirm or refute that. The ablation
+  ranking was meaningless (all policies constant), and the primary sweep's
+  PPO-vs-A2C gap (0.009) is far inside PPO's seed spread (±0.089).
 
-Three caveats before treating that as a genuine contradiction — the write-up
-should state all three rather than claim a refutation:
+**A hypothesis this work tested, with a negative result.** A natural reading of
+Liang's ranking is that their PG wins because it *is* Jiang's IIE architecture —
+per-asset flows with shared weights — while their DDPG and PPO are generic. That
+predicts giving A2C the same weight-shared encoder should rescue it.
 
-1. **The PG substitution is much wider than "A2C vs REINFORCE" (§6).** Their PG
-   is not a generic policy-gradient agent: it is **Jiang's IIE architecture**
-   (per-asset network flows with shared weights, softmax head), with residual
-   blocks replacing Jiang's CNN, trained by direct policy gradient. This work's
-   "PG" is stock SB3 A2C on `MultiInputPolicy` with default networks. So the
-   comparison is *general-purpose deep RL algorithm* vs *domain-specialized
-   architecture* — and their result that PG beats DDPG and PPO may well be
-   reporting **the architecture's advantage rather than the algorithm
-   family's**, since it is the one agent of their three carrying Jiang's design.
-   A2C's single collapsed seed drives most of the remaining gap.
-2. **Different markets.** China A-shares (with the market irregularities and
-   government intervention their conclusion explicitly blames for non-stationary
-   transitions) versus 8 US large-cap S&P 500 equities.
-3. **Different budgets, objectives and horizons.** They tune across optimizers,
-   learning rates, objective functions and feature combinations with a
-   risk-adjusted objective; this work fixes an equal 300k-step budget across
-   algorithms with a log-return reward and a light validation-only tuning of two
-   hyperparameters.
+**It did not.** A2C with the conv encoder remains market-blind on all five seeds
+(§9.2). So architecture alone does not account for Liang's result. Two
+explanations remain open: their PG is trained by *direct* policy gradient on an
+explicitly differentiable reward, whereas A2C is an actor-critic that must
+additionally learn a value function on a 0.035-SNR signal; and their PG carries
+the *full* EIIE topology including the shared output head, whereas this work
+changed only the encoder. Either would be a worthwhile follow-up; neither is
+resolved here.
+
+**Two standing caveats on any comparison with this paper:**
+
+1. **The PG substitution (§6).** Their PG is Jiang's architecture trained by
+   direct policy gradient; this work's is stock SB3 A2C. The comparison is
+   *general-purpose deep RL* vs *domain-specialized architecture*, not
+   algorithm-family vs algorithm-family.
+2. **Different markets and protocols.** China A-shares (whose irregularities
+   their conclusion explicitly blames for non-stationary transitions) versus 8
+   US large-cap equities; their tuning across optimizers, objectives and feature
+   sets with a risk-adjusted objective versus this work's equal step budget,
+   log-return reward and two-hyperparameter validation-only tuning.
 
 ### 9.2 Policy degeneracy — the central finding
 
-Finding 4 above was verified directly rather than inferred from the heatmaps.
-`experiments/policy_diagnostic.py` runs each checkpoint's deterministic policy
-over the test window and measures how far its output weights move.
+Whether a policy *trades at all* cannot be read off fAPV, Sharpe or drawdown.
+`experiments/policy_diagnostic.py` measures it directly: it queries each
+checkpoint on observations from **nine widely separated market regimes**
+(start/middle/end of each split) while holding `w_prev` fixed, so any change in
+output is attributable to the price tensor alone. Consecutive daily observations
+share 49 of their 50 days, so within-window drift proves little — the
+decorrelated probe is the authoritative measure.
 
-| Algorithm | Largest movement of any weight over 187 days |
+**Four verdicts** (`CONSTANT_TOL = 1e-4`, `MEANINGFUL_RESPONSE = 1e-2`):
+
+| Verdict | Meaning |
 |---|---|
-| PPO | 4.1e-07 – 1.3e-06 |
-| A2C (PG) | 2.7e-08 – 4.1e-07 |
-| DDPG | exactly 0.0 |
+| `FROZEN` | weights never move at all |
+| `MARKET-BLIND` | weights move, but from `w_prev` feedback, not from `X_t` |
+| `negligible` | responds to `X_t` by under 1 percentage point across regimes |
+| `responds to X_t` | genuine trading policy |
 
-**All 15 policies are constant functions.** A trading policy moves weights by
-O(0.1); these move by float32 rounding error. The result survives a harder
-control: querying each policy on observations from the start, middle and end of
-each split — windows sharing no data at all — produces the same weights, with
-`w_prev` held fixed so any movement would be attributable to `X_t` alone.
+The `MARKET-BLIND` category was added after the primary sweep produced a case
+that did not exist in the ablation: policies whose weights drift while the price
+tensor contributes exactly nothing. Judging on weight movement alone reports
+those as healthy, which is wrong.
 
-DDPG is the extreme case. Its actor output is saturated at the action bounds
-(every component exactly ±10), identical between the `best` and `final`
-checkpoints, and its validation score is **bit-identical across all 20
-evaluations** from 15k to 300k steps. It froze before the first evaluation.
+**Ablation sweep (default extractor):** all 15 policies `FROZEN`. Largest weight
+movement over 187 days was 4.1e-07–1.3e-06 (PPO), 2.7e-08–4.1e-07 (A2C), and
+*exactly zero* (DDPG). A trading policy moves weights by O(0.1); these move by
+float32 rounding error.
 
-**What this means for the thesis.** The reported fAPV differences are
-differences between *constant portfolios*, not between trading strategies. The
-agents' turnover (~0.02/step) is drift correction — rebalancing back to a fixed
-target — which is why it nearly matches UCRP's 0.0226. The train→test
-progression (§9, table) is then readable as the optimizer selecting the
-historically best fixed allocation: A2C's median seed holds ~100% NVDA, the best
-stock of the *training* window (cumulative relative 6.80), which stopped winning
-out of sample.
+**Primary sweep (conv encoder), test window:**
 
-**Plausible causes — hypotheses, not tested here:**
+| algo | seed | probe | verdict | test fAPV | turnover |
+|---|---|---|---|---|---|
+| PPO | 0 | 0.506 | **responds** | 1.2293 | 0.1558 |
+| PPO | 1 | 0.762 | **responds** | 1.1970 | 0.1157 |
+| PPO | 2 | 0.612 | **responds** | 1.3417 | 0.0876 |
+| PPO | 3 | 0.000 | MARKET-BLIND | 1.1707 | 0.0261 |
+| PPO | 4 | 0.066 | **responds** | 1.0981 | 0.0827 |
+| A2C | 0, 1 | ≤0.0015 | negligible | 1.19–1.20 | ~0.016 |
+| A2C | 2, 3, 4 | 0.000 | MARKET-BLIND | 1.17–1.25 | ~0.018 |
+| DDPG | 0, 1 | 0.000 | **FROZEN** | 1.17 | ~0.017 |
+
+**4 of 12 respond meaningfully — all of them PPO.**
+
+Three conclusions:
+
+* **The encoder eliminated freezing for the policy-gradient methods**: 0 of 10,
+  against 10 of 10 in the ablation. This is the causal evidence for the
+  architecture claim.
+* **A2C did not benefit.** Every seed is market-blind or negligible despite
+  receiving the identical encoder. Its 1.1982 is a constant portfolio that
+  happened to perform well and **must not be reported as a working agent**.
+* **Turnover corroborates the probe independently.** PPO's market-blind seed 3
+  trades at 0.0261 while its four responsive seeds trade at 0.083–0.156.
+
+**DDPG's mechanism, isolated.** Its actor output is saturated at the action
+bounds — every component at exactly ±10 in the ablation, exactly ±5 in the
+primary sweep, i.e. 100% of outputs railed in both. Saturated tanh has zero
+gradient, so the policy freezes permanently. Reproduced four times across two
+bounds and two extractors. Narrowing the bound reduced the saturated allocation
+ratio from 485,000,000:1 to 22,000:1 but did **not** prevent the freeze: the
+bound was never the root cause, only the blast radius. The root cause is DDPG's
+deterministic policy gradient driving the actor to whatever wall exists, with no
+entropy term opposing it.
+
+**Plausible causes of the remaining degeneracy — hypotheses, not tested here:**
 
 1. **The price tensor's structure is destroyed before the network sees it.**
    This is the most concrete cause, and it is verifiable from the saved
@@ -479,15 +633,29 @@ out of sample.
    policy net: Linear(1209, 64) -> Tanh -> Linear(64, 64) -> Tanh
    ```
 
-   **There is no convolution anywhere in the trained models.** Every piece of
+   **There is no convolution anywhere in the ablation models.** Every piece of
    structure Eq. 18 encodes — that the 50 entries are consecutive days, the 8
    columns different assets, the 3 channels high/low/close — is discarded at the
    flatten. The network must learn 1209 unrelated input weights from scratch.
    This is precisely what Jiang's EIIE topology exists to prevent: per-asset
    flows with *shared* parameters learn "how to evaluate an asset" once, instead
-   of separately for all 8. The plan listed a CNN feature extractor as optional
-   "if time"; it was never added, and the diagnostic suggests it was not
-   optional.
+   of separately for all 8.
+
+   **This hypothesis was tested and confirmed.** `AssetSharedConvExtractor`
+   (§6.1) replaces the flatten with two convolutions whose kernels span
+   *k timesteps × 1 asset*, so the same filter applies to every asset column —
+   Jiang's Identical Independent Evaluators property, and the reason parameter
+   count is independent of `m`. Measured effect: 1209 features → 169, and 77,376
+   parameters in the first MLP layer → 1,960 in the whole encoder. Freezing went
+   from 15 of 15 to 0 of 10 for the policy-gradient methods, and every algorithm
+   rose above the passive benchmarks on return. **This is the single largest
+   effect measured anywhere in this project.**
+
+   It is *not* full EIIE, deliberately. Full EIIE bundles four changes — shared
+   conv output head, `w_prev` as a channel, cash bias, and PVM — and shipping
+   all four would make the recovery unattributable. Changing only the encoder
+   isolates the causal claim. The four specific gaps are documented in
+   `experiments/extractors.py`.
 2. **Input scale.** After Eq. 18 normalization, every input sits at
    0.988 ± 0.092: a near-constant, non-zero-centred signal. A default SB3 MLP
    (orthogonal init, gain √2) sees almost no variation to key on. No observation

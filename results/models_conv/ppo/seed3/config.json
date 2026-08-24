@@ -1,0 +1,23 @@
+{
+  "algo": "ppo",
+  "seed": 3,
+  "steps": 500000,
+  "commission": 0.0025,
+  "episode_length": 250,
+  "extractor": "conv",
+  "action_bound": 5.0,
+  "hparams": {
+    "learning_rate": 0.0003,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "ent_coef": 0.0
+  },
+  "best_val_logreturn": 0.242335,
+  "best_val_fapv": 1.274220985354547,
+  "elapsed_sec": 801.3,
+  "best_model": "results/models_conv\\ppo\\seed3\\best_model.zip",
+  "final_model": "results/models_conv\\ppo\\seed3\\final_model.zip"
+}

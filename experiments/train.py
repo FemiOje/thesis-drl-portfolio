@@ -8,7 +8,7 @@ Algorithms (per the plan; Liang et al. 2018 comparison):
   * ppo  — PPO, the stochastic policy-gradient representative.
   * ddpg — DDPG, the deterministic actor-critic (Gaussian action noise added).
   * a2c  — A2C, used as the practical vanilla policy-gradient ("PG") baseline
-           (this PG->A2C mapping is stated in the thesis / docs).
+           (this PG->A2C mapping is stated in the docs).
 
 Protocol:
   * Train on the TRAIN split (random ~250-step sub-windows for variety).
@@ -37,7 +37,10 @@ import time
 
 import numpy as np
 from stable_baselines3 import A2C, DDPG, PPO
-from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.callbacks import (
+    EvalCallback,
+    StopTrainingOnNoModelImprovement,
+)
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.noise import NormalActionNoise
 from stable_baselines3.common.utils import set_random_seed
@@ -48,8 +51,9 @@ for sub in ("env", "data"):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import data_loader as dl  # noqa: E402
-import portfolio_env as pe  # noqa: E402
+import data_loader as dl
+import portfolio_env as pe
+from extractors import EXTRACTORS 
 
 ALGOS = {"ppo": PPO, "a2c": A2C, "ddpg": DDPG}
 
@@ -58,10 +62,7 @@ MODELS_DIR = os.path.join(RESULTS_DIR, "models")
 TB_DIR = os.path.join(RESULTS_DIR, "tensorboard")
 
 
-# =============================================================================
-# Per-algorithm default hyperparameters (CLI flags override; None => default).
-# Tune only 2-3 (learning rate, rollout/batch size) on VALIDATION.
-# =============================================================================
+# Per-algorithm default hyperparameters (CLI flags have precedence/override these. None => default)
 def hparams(algo: str, args: argparse.Namespace) -> dict:
     lr = args.lr
     n_steps = args.n_steps
@@ -111,6 +112,13 @@ def build_model(algo: str, train_env, seed: int, tb_dir: str, args: argparse.Nam
         common["action_noise"] = NormalActionNoise(
             mean=np.zeros(n), sigma=args.ddpg_sigma * np.ones(n)
         )
+    # "flatten" is SB3's CombinedExtractor default, which flattens the price
+    # tensor to 1200 unrelated inputs. It stays the default so the originally
+    # reported results remain reproducible; "eiie" opts into the convolutional
+    # encoder (see extractors.py).
+    extractor = EXTRACTORS[args.extractor]
+    if extractor is not None:
+        common["policy_kwargs"] = dict(features_extractor_class=extractor)
     return ALGOS[algo](**common, **hp)
 
 
@@ -124,18 +132,33 @@ def train_one(algo: str, seed: int, args: argparse.Namespace, dataset) -> dict:
     train_env = Monitor(
         pe.make_env("train", commission=args.commission,
                     episode_length=args.episode_length, random_start=True,
-                    dataset=dataset)
+                    dataset=dataset, action_bound=args.action_bound)
     )
     # Deterministic full pass over VAL for "best-on-validation" checkpointing.
     val_env = Monitor(
         pe.make_env("val", commission=args.commission,
-                    episode_length=None, random_start=False, dataset=dataset)
+                    episode_length=None, random_start=False, dataset=dataset,
+                    action_bound=args.action_bound)
     )
 
-    model_dir = os.path.join(MODELS_DIR, algo, f"seed{seed}")
+    model_dir = os.path.join(args.models_dir, algo, f"seed{seed}")
     os.makedirs(model_dir, exist_ok=True)
 
     eval_freq = args.eval_freq or max(args.steps // 20, 2000)
+
+    # Freeze guard. A saturated DDPG actor has zero gradient, so its validation
+    # score stops changing entirely and every remaining step is wasted compute
+    # (measured: a 100k probe froze at 55k, i.e. 45% dead). Stop a run whose
+    # validation has not improved for `freeze_patience` consecutive evaluations.
+    # `min_evals` keeps it from firing during normal early-training noise.
+    stop_cb = None
+    if args.freeze_patience > 0:
+        stop_cb = StopTrainingOnNoModelImprovement(
+            max_no_improvement_evals=args.freeze_patience,
+            min_evals=args.freeze_min_evals,
+            verbose=1,
+        )
+
     eval_cb = EvalCallback(
         val_env,
         best_model_save_path=model_dir,   # writes best_model.zip on val improvement
@@ -145,13 +168,14 @@ def train_one(algo: str, seed: int, args: argparse.Namespace, dataset) -> dict:
         deterministic=True,
         render=False,
         verbose=0,
+        callback_after_eval=stop_cb,
     )
 
     model = build_model(algo, train_env, seed, TB_DIR, args)
     model.learn(
         total_timesteps=args.steps,
         callback=eval_cb,
-        tb_log_name=f"{algo}_seed{seed}",
+        tb_log_name=f"{algo}_{args.extractor}_seed{seed}",
         progress_bar=False,
     )
     model.save(os.path.join(model_dir, "final_model"))
@@ -167,6 +191,8 @@ def train_one(algo: str, seed: int, args: argparse.Namespace, dataset) -> dict:
         "steps": args.steps,
         "commission": args.commission,
         "episode_length": args.episode_length,
+        "extractor": args.extractor,
+        "action_bound": args.action_bound,
         "hparams": hparams(algo, args),
         "best_val_logreturn": best_logret,
         "best_val_fapv": fapv_val,
@@ -205,9 +231,24 @@ def main() -> int:
                     help="env steps between val evaluations (default steps//20)")
     ap.add_argument("--device", default="cpu",
                     help="torch device: cpu (default) | cuda | auto (e.g. Colab GPU)")
+    ap.add_argument("--freeze-patience", type=int, default=8,
+                    help="stop a run after this many evaluations with no "
+                         "validation improvement (0 disables the guard)")
+    ap.add_argument("--freeze-min-evals", type=int, default=10,
+                    help="never trigger the freeze guard before this many evals")
+    ap.add_argument("--action-bound", type=float, default=pe.ACTION_BOUND,
+                    help="softmax logit bound; must match the bound a "
+                         "checkpoint was trained under (default %(default)s)")
+    ap.add_argument("--extractor", choices=list(EXTRACTORS), default="flatten",
+                    help="policy feature extractor. 'flatten' is SB3's default "
+                         "(reproduces the originally reported results); 'eiie' "
+                         "uses the weight-shared conv encoder (extractors.py)")
+    ap.add_argument("--models-dir", default=MODELS_DIR,
+                    help="where to write checkpoints (use a separate directory "
+                         "when changing --extractor, to avoid clobbering)")
     args = ap.parse_args()
 
-    os.makedirs(MODELS_DIR, exist_ok=True)
+    os.makedirs(args.models_dir, exist_ok=True)
     os.makedirs(TB_DIR, exist_ok=True)
 
     algos = list(ALGOS) if args.algo == "all" else [args.algo]
@@ -215,7 +256,8 @@ def main() -> int:
 
     dataset = dl.build_dataset()  # cached; never re-downloads
     print(f"Training {algos} x seeds {seeds} @ {args.steps} steps "
-          f"(commission {args.commission:.4%}, val-checkpointed)")
+          f"(commission {args.commission:.4%}, extractor={args.extractor}, "
+          f"val-checkpointed) -> {args.models_dir}")
 
     summaries = []
     for algo in algos:

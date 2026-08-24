@@ -54,7 +54,20 @@ if os.path.join(_ROOT, "data") not in sys.path:
 import data_loader as dl  # noqa: E402
 
 DEFAULT_COMMISSION: float = 0.0025  # 0.25% both sides (Jiang default; also test 0.1%)
-ACTION_BOUND: float = 10.0          # softmax logit bound; wide enough for concentration
+# Softmax logit bound. Because softmax is shift-invariant, this constrains the
+# *spread* between the highest and lowest score (2*bound), not the absolute
+# score. Chosen by measurement, not taste: a working PPO policy uses a spread of
+# 6.90, so a bound of 5 (spread 10) leaves ~45% headroom and still permits
+# 99.96% concentration in a single asset.
+#
+# It was originally 10. That let DDPG's deterministic actor rail its tanh against
+# the bound (100% of outputs saturated -> zero gradient -> the policy froze), and
+# turned a saturated action into a 485,000,000:1 allocation ratio. At 5 the
+# saturated-case ratio is 22,000:1. Pass ``action_bound=10.0`` to reproduce the
+# original *training* environment. (Evaluating an old checkpoint needs no such
+# care: SB3 clips predictions to the model's own stored action space, which
+# travels inside the .zip, and this env never clips what it is handed.)
+ACTION_BOUND: float = 5.0
 
 
 # =============================================================================
@@ -175,6 +188,7 @@ class PortfolioEnv(gym.Env):
         commission: float = DEFAULT_COMMISSION,
         episode_length: int | None = None,
         random_start: bool = False,
+        action_bound: float = ACTION_BOUND,
     ) -> None:
         super().__init__()
         self.ds = dataset
@@ -184,6 +198,7 @@ class PortfolioEnv(gym.Env):
         self.c_p = float(commission)
         self.episode_length = episode_length
         self.random_start = random_start
+        self.action_bound = float(action_bound)
 
         # Price relatives with a cash column (== 1) prepended -> (T, m+1).
         y_stocks = dataset.y                      # (T, m)
@@ -216,7 +231,7 @@ class PortfolioEnv(gym.Env):
             }
         )
         self.action_space = spaces.Box(
-            low=-ACTION_BOUND, high=ACTION_BOUND,
+            low=-self.action_bound, high=self.action_bound,
             shape=(n_assets_cash,), dtype=np.float32,
         )
 
@@ -313,21 +328,19 @@ class PortfolioEnv(gym.Env):
         }
         return self._obs(), reward, terminated, truncated, info
 
-
-# =============================================================================
-# Convenience factory
-# =============================================================================
 def make_env(
     split: str = "train",
     commission: float = DEFAULT_COMMISSION,
     episode_length: int | None = None,
     random_start: bool | None = None,
     dataset: "dl.Dataset | None" = None,
+    action_bound: float = ACTION_BOUND,
 ) -> PortfolioEnv:
     """Build a PortfolioEnv for a named split ("train"/"val"/"test").
 
     Loads the cached dataset if none is supplied (never re-downloads). Defaults
-    ``random_start`` to True for training only.
+    ``random_start`` to True for training only. ``action_bound`` must match the
+    bound a checkpoint was trained under (see the ACTION_BOUND note above).
     """
     if dataset is None:
         dataset = dl.build_dataset()
@@ -341,6 +354,7 @@ def make_env(
         commission=commission,
         episode_length=episode_length,
         random_start=random_start,
+        action_bound=action_bound,
     )
 
 

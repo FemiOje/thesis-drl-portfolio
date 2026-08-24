@@ -283,7 +283,8 @@ def evaluate_all(args) -> list[Run]:
         # random_start=False is explicit — make_env would otherwise default it
         # to True on the train split, which would break a deterministic pass.
         return pe.make_env(args.split, commission=args.commission,
-                           episode_length=None, random_start=False, dataset=dataset)
+                           episode_length=None, random_start=False,
+                           dataset=dataset, action_bound=args.action_bound)
 
     a, b = getattr(dataset.splits, args.split)
     probe = split_env()
@@ -612,6 +613,9 @@ def main() -> int:
     ap.add_argument("--checkpoint", choices=["best", "final"], default="best",
                     help="which saved checkpoint to evaluate (default: "
                          "best-on-validation)")
+    ap.add_argument("--action-bound", type=float, default=pe.ACTION_BOUND,
+                    help="must match the bound the checkpoints were trained "
+                         "under; pass 10 for the original runs")
     ap.add_argument("--models-dir", default=MODELS_DIR)
     ap.add_argument("--out-dir", default=None,
                     help="output directory (default: results/evaluation/<split>)")
