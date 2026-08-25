@@ -35,16 +35,24 @@ def style_for(name):
                 lw=1.4 if name in ("PG", "PPO", "DDPG") else 1.1)
 
 
-def wealth_axis(ax, ylabel="portfolio value  $p_t/p_0$"):
+def log_y_ticks(ax, nbins=8):
+    """Wealth spans far less than a decade, where LogLocator gives either one tick or a
+    crush of decade subdivisions — and sometimes none at all. Pick round ticks over the
+    realised range instead. Every log wealth axis in the suite goes through here."""
     ax.set_yscale("log")
-    # Wealth spans far less than a decade, where LogLocator gives either one tick or a
-    # crush of decade subdivisions. Pick round ticks over the realised range instead.
     lo, hi = ax.get_ylim()
-    ticks = matplotlib.ticker.MaxNLocator(nbins=8, steps=[1, 2, 2.5, 5, 10]).tick_values(lo, hi)
-    ax.set_yticks([v for v in ticks if lo <= v <= hi])
+    ticks = matplotlib.ticker.MaxNLocator(nbins=nbins, steps=[1, 2, 2.5, 5, 10]).tick_values(lo, hi)
+    keep = [v for v in ticks if lo <= v <= hi]
+    if len(keep) < 2:                       # degenerate range: fall back to the ends
+        keep = [lo, (lo * hi) ** 0.5, hi]
+    ax.set_yticks(keep)
     ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}"))
     ax.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
     ax.set_ylim(lo, hi)
+
+
+def wealth_axis(ax, ylabel="portfolio value  $p_t/p_0$"):
+    log_y_ticks(ax)
     ax.axhline(1.0, color="k", lw=0.6, alpha=0.4)
     ax.set_ylabel(ylabel)
 
@@ -179,3 +187,118 @@ def f0c_tensor(X, tickers, dates, idx, out_dir, run_id=""):
     fig.suptitle(f"F0c  Input tensor {tuple(X.shape[1:])} at decision date "
                  f"{str(dates[idx].date())}", y=1.04)
     return save(fig, out_dir, "F0c_tensor", run_id)
+
+
+# ---- F1-F4: training diagnostics (Phase 4 onward) ----
+
+def _seed_band(ax, x, c, color, label=None, seeds=True):
+    """Median + IQR with the individual seeds faint behind."""
+    c = np.atleast_2d(c)
+    if seeds and len(c) > 1:
+        for s in c:
+            ax.plot(x, s, color=color, lw=0.5, alpha=0.25)
+        ax.fill_between(x, np.percentile(c, 25, 0), np.percentile(c, 75, 0),
+                        color=color, alpha=0.18, lw=0)
+    ax.plot(x, np.median(c, 0), color=color, lw=1.5, label=label)
+
+
+def _mean_log_return(wealth, n_days):
+    """Episode wealth -> mean log return per day, the quantity PG maximises."""
+    return np.log(np.asarray(wealth, float)) / n_days
+
+
+def f1_learning_curves(hist, n_days, out_dir, run_id=""):
+    """Mean log return per episode vs gradient step, one panel per algorithm."""
+    fig, axes = plt.subplots(1, len(hist), figsize=(5.2 * len(hist), 4.0), squeeze=False)
+    for ax, (algo, h) in zip(axes[0], hist.items()):
+        for split, ls in (("train", "-"), ("validate", "--")):
+            c = _mean_log_return(h[split], n_days[split])
+            col = STRATEGY_COLORS.get(algo, "#333") if split == "train" else "#555"
+            _seed_band(ax, h["eval_step"], c, col, label=split)
+            ax.lines[-1].set_linestyle(ls)
+        ax.axhline(0, color="k", lw=0.6, alpha=0.4)
+        ax.set_title(algo)
+        ax.set_xlabel("gradient step")
+        ax.set_ylabel("mean log return per day")
+        ax.legend(fontsize=8)
+    fig.suptitle("F1  Learning curves (median, IQR, individual seeds)", y=1.02)
+    return save(fig, out_dir, "F1_learning_curves", run_id)
+
+
+def f2_train_val_wealth_vs_step(hist, out_dir, run_id="", ucrp=None):
+    """Final wealth on train and validation vs gradient step. The gap opening is the
+    overfitting signature; the selected checkpoint is marked."""
+    fig, axes = plt.subplots(1, len(hist), figsize=(5.2 * len(hist), 4.0), squeeze=False)
+    for ax, (algo, h) in zip(axes[0], hist.items()):
+        _seed_band(ax, h["eval_step"], h["train"], "#1f77b4", label="train")
+        _seed_band(ax, h["eval_step"], h["validate"], "#d62728", label="validate")
+        best = np.atleast_1d(h["best_step"])
+        ax.axvline(np.median(best), color="k", ls=":", lw=1.2,
+                   label=f"selected (median step {int(np.median(best))})")
+        if ucrp:
+            for split, v in ucrp.items():
+                ax.axhline(v, color="#9467bd", lw=0.8, alpha=0.7)
+                ax.text(ax.get_xlim()[1], v, f" UCRP {split}", fontsize=7,
+                        va="center", color="#9467bd")
+        log_y_ticks(ax, nbins=10)
+        ax.set_title(algo)
+        ax.set_xlabel("gradient step")
+        ax.set_ylabel("final wealth $p_T/p_0$")
+        ax.legend(fontsize=8)
+    fig.suptitle("F2  Train vs validation wealth, checkpoint selected on validation",
+                 y=1.02)
+    return save(fig, out_dir, "F2_train_val_vs_step", run_id)
+
+
+def f3_loss(hist, out_dir, run_id="", smooth=500):
+    """PG has one objective and no critic, so the loss curve is the negated Eq. 21
+    batch objective. PPO and DDPG add their own panels in Phase 5."""
+    fig, axes = plt.subplots(1, len(hist), figsize=(5.2 * len(hist), 3.8), squeeze=False)
+    for ax, (algo, h) in zip(axes[0], hist.items()):
+        r = np.atleast_2d(h["reward"])
+        k = np.ones(smooth) / smooth
+        sm = np.array([np.convolve(s, k, mode="valid") for s in r])
+        x = np.arange(len(sm[0])) + smooth
+        # seeds omitted: batch-to-batch variance is set by which 50 days the batch
+        # landed on, and the spaghetti hides the trend this figure exists to show
+        _seed_band(ax, x, sm, STRATEGY_COLORS.get(algo, "#333"), seeds=False)
+        ax.fill_between(x, sm.min(0), sm.max(0),
+                        color=STRATEGY_COLORS.get(algo, "#333"), alpha=0.15, lw=0)
+        ax.set_title(f"{algo} — batch objective (Eq. 21), {smooth}-step mean")
+        ax.set_xlabel("gradient step")
+        ax.set_ylabel("mean log return per step")
+        ax.axhline(0, color="k", lw=0.6, alpha=0.4)
+    fig.suptitle("F3  Loss curves", y=1.03)
+    return save(fig, out_dir, "F3_loss", run_id)
+
+
+def f4_plateau(hist, out_dir, run_id="", win=5, frac=0.10):
+    """Rolling slope of the validation curve. 'It plateaued' becomes quantitative:
+    the band is |slope| < frac x the largest slope seen, and the marked step is where
+    the selected checkpoint was taken."""
+    fig, axes = plt.subplots(1, len(hist), figsize=(5.2 * len(hist), 3.8), squeeze=False)
+    for ax, (algo, h) in zip(axes[0], hist.items()):
+        x, v = np.asarray(h["eval_step"], float), np.atleast_2d(h["validate"])
+        if len(x) <= win:
+            ax.text(0.5, 0.5, "too few evaluations", ha="center", transform=ax.transAxes)
+            continue
+        sl = np.array([(s[win:] - s[:-win]) / (x[win:] - x[:-win]) for s in v])
+        xs = x[win:]
+        med = np.median(sl, 0)
+        thr = frac * np.abs(med).max()
+        _seed_band(ax, xs, sl * 1e6, STRATEGY_COLORS.get(algo, "#333"))
+        ax.axhspan(-thr * 1e6, thr * 1e6, color="k", alpha=0.10,
+                   label=f"|slope| < {frac:.0%} of max")
+        ax.axhline(0, color="k", lw=0.6, alpha=0.4)
+        best = int(np.median(np.atleast_1d(h["best_step"])))
+        ax.axvline(best, color="k", ls=":", lw=1.2, label=f"selected step {best}")
+        flat = xs[np.abs(med) < thr]
+        if len(flat):
+            ax.axvline(flat[0], color="#d62728", ls="--", lw=1.0,
+                       label=f"plateau from {int(flat[0])}")
+        ax.set_title(algo)
+        ax.set_xlabel("gradient step")
+        ax.set_ylabel(r"d(val wealth)/d(step)  $\times 10^{-6}$")
+        ax.legend(fontsize=7)
+    fig.suptitle("F4  Plateau diagnostic on the validation curve", y=1.03)
+    return save(fig, out_dir, "F4_plateau", run_id)

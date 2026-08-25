@@ -25,7 +25,16 @@ def main(run_id="baselines"):
     agents = results.load_agents(agent_dir) if agent_dir.is_dir() and run_id != "baselines" else None
     r = results.merge(base, agents)
 
+    hist = results.load_history(agent_dir)
+    n_days = {k: len(v) for k, v in r["dates"].items()}
+    ucrp = {sp: float(base["curves"][sp]["UCRP"][0, -1]) for sp in ("train", "validate")}
+
     done = []
+    if hist:
+        done.append(plots.f1_learning_curves(hist, n_days, FIGS, run_id))
+        done.append(plots.f2_train_val_wealth_vs_step(hist, FIGS, run_id, ucrp))
+        done.append(plots.f3_loss(hist, FIGS, run_id))
+        done.append(plots.f4_plateau(hist, FIGS, run_id))
     done.append(plots.f5_test_wealth(r["dates"]["test"], r["curves"]["test"], FIGS, run_id))
     done.append(plots.f6_train_val_wealth(r["dates"], r["curves"], FIGS, run_id))
     done.append(plots.f7_wealth_and_drawdown(r["dates"]["test"], r["curves"]["test"],
@@ -37,8 +46,10 @@ def main(run_id="baselines"):
         print(f"  {p.relative_to(PROJECT_ROOT)}  (+ .pdf)")
     n_strat = len(r["curves"]["test"])
     print(f"\n{len(done)} figures, {n_strat} strategies, run_id={run_id}")
+    if not hist:
+        print("skipped F1-F4: no training histories")
     if agents is None:
-        print("skipped F1-F4, F9-F17: no agent runs yet (Phase 4 onward)")
+        print("skipped F9-F17: no agent runs yet")
 
 
 if __name__ == "__main__":

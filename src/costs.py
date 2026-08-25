@@ -56,6 +56,6 @@ def transaction_remainder(w_drift, w_target, c, k=K_DEFAULT, backend="numpy", c_
 
 
 def drift(w_prev, y):
-    """w'_t = (y_t * w_{t-1}) / (y_t . w_{t-1}) — Eq. 7."""
+    """w'_t = (y_t * w_{t-1}) / (y_t . w_{t-1}) — Eq. 7. numpy or torch."""
     num = y * w_prev
-    return num / num.sum(-1, keepdims=True)
+    return num / num.sum(-1)[..., None]

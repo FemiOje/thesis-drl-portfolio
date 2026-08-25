@@ -41,6 +41,7 @@ agent:
     learning_rate: 3.0e-5   # Jiang Table B.1
     l2: 1.0e-8
     gradient_steps: 10000
+    eval_every: 250
   ppo:
     total_timesteps: 300000
   ddpg:

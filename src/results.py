@@ -50,3 +50,15 @@ def merge(base, agents):
     if len(agents["metrics"]):
         out["metrics"] = pd.concat([base["metrics"], agents["metrics"]], ignore_index=True)
     return out
+
+
+def load_history(run_dir):
+    """Training diagnostics per algorithm: results/<run_id>/<algo>/history.npz."""
+    out = {}
+    if not run_dir.is_dir():
+        return out
+    for d in sorted(p for p in run_dir.iterdir() if p.is_dir()):
+        f = d / "history.npz"
+        if f.exists():
+            out[d.name] = {k: v for k, v in np.load(f).items()}
+    return out
