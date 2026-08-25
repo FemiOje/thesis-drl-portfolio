@@ -235,11 +235,8 @@ def f2_train_val_wealth_vs_step(hist, out_dir, run_id="", ucrp=None):
         best = np.atleast_1d(h["best_step"])
         ax.axvline(np.median(best), color="k", ls=":", lw=1.2,
                    label=f"selected (median step {int(np.median(best))})")
-        if ucrp:
-            for split, v in ucrp.items():
-                ax.axhline(v, color="#9467bd", lw=0.8, alpha=0.7)
-                ax.text(ax.get_xlim()[1], v, f" UCRP {split}", fontsize=7,
-                        va="center", color="#9467bd")
+        for split, v in (ucrp or {}).items():
+            ax.axhline(v, color="#9467bd", lw=0.8, alpha=0.7, label=f"UCRP {split}")
         log_y_ticks(ax, nbins=10)
         ax.set_title(algo)
         ax.set_xlabel("gradient step")
@@ -256,15 +253,19 @@ def f3_loss(hist, out_dir, run_id="", smooth=500):
     fig, axes = plt.subplots(1, len(hist), figsize=(5.2 * len(hist), 3.8), squeeze=False)
     for ax, (algo, h) in zip(axes[0], hist.items()):
         r = np.atleast_2d(h["reward"])
-        k = np.ones(smooth) / smooth
-        sm = np.array([np.convolve(s, k, mode="valid") for s in r])
-        x = np.arange(len(sm[0])) + smooth
+        if r.shape[1] == len(h["eval_step"]):   # SB3 arms: one reward per evaluation
+            x, sm, note = h["eval_step"], r, "per evaluation"
+        else:                                   # PG: one per gradient step
+            k = np.ones(smooth) / smooth
+            sm = np.array([np.convolve(s, k, mode="valid") for s in r])
+            x = np.arange(len(sm[0])) + smooth
+            note = f"{smooth}-step mean"
         # seeds omitted: batch-to-batch variance is set by which 50 days the batch
         # landed on, and the spaghetti hides the trend this figure exists to show
         _seed_band(ax, x, sm, STRATEGY_COLORS.get(algo, "#333"), seeds=False)
         ax.fill_between(x, sm.min(0), sm.max(0),
                         color=STRATEGY_COLORS.get(algo, "#333"), alpha=0.15, lw=0)
-        ax.set_title(f"{algo} — batch objective (Eq. 21), {smooth}-step mean")
+        ax.set_title(f"{algo} — batch objective (Eq. 21), {note}")
         ax.set_xlabel("gradient step")
         ax.set_ylabel("mean log return per step")
         ax.axhline(0, color="k", lw=0.6, alpha=0.4)
@@ -302,3 +303,65 @@ def f4_plateau(hist, out_dir, run_id="", win=5, frac=0.10):
         ax.legend(fontsize=7)
     fig.suptitle("F4  Plateau diagnostic on the validation curve", y=1.03)
     return save(fig, out_dir, "F4_plateau", run_id)
+
+
+def f18_training_convergence(hist, out_dir, run_id="", refs=None, smooth=2000):
+    """Did the agent exhaust the training set? Three views of the same answer.
+
+    (a) train and validation wealth vs gradient step;
+    (b) the slope of log train wealth -- a converged run decays to zero;
+    (c) the objective actually optimised, the mean batch log return. PG logs this every
+        gradient step, the SB3 arms only at evaluations, so smoothing applies to PG
+        alone -- convolving a 40-point series with a 2000-point kernel returns numpy's
+        longer-input convolution, i.e. a flat line on a fabricated x-axis.
+
+    refs: {"UCRP": x, "BestStock": y} drawn on (a) as in-sample reference levels.
+    """
+    algos = list(hist)
+    fig, axes = plt.subplots(len(algos), 3, figsize=(15.0, 4.1 * len(algos)),
+                             squeeze=False)
+    for row, algo in enumerate(algos):
+        h = hist[algo]
+        st, tr, va, rw = h["eval_step"], h["train"], h["validate"], h["reward"]
+        a, b, c = axes[row]
+
+        _seed_band(a, st, tr, "#1f77b4", "train")
+        _seed_band(a, st, va, "#d62728", "validation")
+        for name, v in (refs or {}).items():
+            a.axhline(v, color="#555555", lw=1.0, label=name,
+                      ls=":" if name == "UCRP" else "--")
+        bs = np.atleast_1d(h["best_step"])
+        a.plot(bs, [np.interp(s, st, np.median(tr, 0)) for s in bs], "v",
+               color="#1f77b4", ms=5, mec="white", mew=0.6, label="selected", zorder=5)
+        wealth_axis(a)
+        a.set_xlabel("gradient step")
+        a.set_title(f"{algo}  (a) train and validation wealth")
+        a.legend(fontsize=8, facecolor="white", framealpha=0.9, edgecolor="none")
+
+        # (b) local slope of log wealth. Converged => decays to 0.
+        lg = np.log(tr)
+        sl = np.gradient(lg, st, axis=1) * 1e3
+        _seed_band(b, st, sl, "#1f77b4")
+        b.axhline(0, color="k", lw=0.8)
+        b.set_xlabel("gradient step")
+        b.set_ylabel(r"d log(train wealth) / d step  $\times 10^{-3}$")
+        b.set_title("(b) convergence: slope of log train wealth")
+
+        # (c) the optimised objective.
+        rw = np.atleast_2d(rw)
+        if rw.shape[1] == len(st):          # SB3 arms: one reward per evaluation
+            x, sm, note = st, rw, "per evaluation"
+        else:                               # PG: one per gradient step
+            k = np.ones(smooth) / smooth
+            sm = np.array([np.convolve(r, k, "valid") for r in rw])
+            x = np.arange(sm.shape[1]) + smooth
+            note = f"smoothed {smooth}"
+        _seed_band(c, x, sm * 1e3, "#2ca02c", seeds=False)
+        c.fill_between(x, sm.min(0) * 1e3, sm.max(0) * 1e3, color="#2ca02c",
+                       alpha=0.15, lw=0)
+        c.axhline(0, color="k", lw=0.8)
+        c.set_xlabel("gradient step")
+        c.set_ylabel(r"mean batch log return  $\times 10^{-3}$")
+        c.set_title(f"(c) optimised objective ({note})")
+    fig.tight_layout()
+    return save(fig, out_dir, "F18_training_convergence", run_id)

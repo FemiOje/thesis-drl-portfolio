@@ -62,8 +62,11 @@ def gradient_steps(agent: "AgentConfig") -> dict[str, int]:
            ``ceil(n_steps / batch_size)`` minibatches (SB3 keeps the short last one).
     DDPG : one trigger every ``train_freq`` env steps, ``gradient_steps`` updates each.
 
-    These are PREDICTIONS from the configuration. Phase 5 asserts them against SB3's
-    realised ``model._n_updates``, because only the realised count is evidence.
+    These are PREDICTIONS from the configuration, counted in MINIBATCHES of
+    ``batch_size`` drawn and backpropagated. Phase 5 asserts them against real
+    ``optimizer.step()`` calls, because only the realised count is evidence -- and NOT
+    against ``model._n_updates``, which for PPO counts epochs (ppo.py:284 sits outside
+    the minibatch loop) and would under-count by ``n_steps / batch_size``.
     """
     ppo, ddpg = agent.ppo, agent.ddpg
     return {

@@ -35,6 +35,9 @@ def main(run_id="baselines"):
         done.append(plots.f2_train_val_wealth_vs_step(hist, FIGS, run_id, ucrp))
         done.append(plots.f3_loss(hist, FIGS, run_id))
         done.append(plots.f4_plateau(hist, FIGS, run_id))
+        refs = {k: float(base["curves"]["train"][k][0, -1])
+                for k in ("UCRP", "BestStock") if k in base["curves"]["train"]}
+        done.append(plots.f18_training_convergence(hist, FIGS, run_id, refs=refs))
     done.append(plots.f5_test_wealth(r["dates"]["test"], r["curves"]["test"], FIGS, run_id))
     done.append(plots.f6_train_val_wealth(r["dates"], r["curves"], FIGS, run_id))
     done.append(plots.f7_wealth_and_drawdown(r["dates"]["test"], r["curves"]["test"],
