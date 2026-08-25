@@ -1,4 +1,4 @@
-"""Figure style + F0a-F0c. Extended in Phase 3.5 with F5-F8."""
+"""Figure style + F0a-F0c."""
 
 import matplotlib
 matplotlib.use("Agg")
@@ -365,3 +365,84 @@ def f18_training_convergence(hist, out_dir, run_id="", refs=None, smooth=2000):
         c.set_title(f"(c) optimised objective ({note})")
     fig.tight_layout()
     return save(fig, out_dir, "F18_training_convergence", run_id)
+
+
+def f9_seed_distributions(per_seed, baselines, out_dir, run_id="", split="test",
+                          metrics=("final_value", "sharpe")):
+    """Seed distributions per algorithm, with baseline reference lines.
+
+    Every seed is drawn as a point on top of the box. With n = 10 the individual seeds
+    ARE the finding -- a box alone hides bimodality, and PG's seeds are bimodal (one
+    cluster at the uniform-portfolio corner, one that trained away from it and lost).
+    Reads the committed metrics CSVs, so the numbers are the same ones F8 reports and
+    cannot drift from them.
+    """
+    ps = per_seed[per_seed.split == split]
+    bl = baselines[baselines.split == split].set_index("strategy")
+    algos = [a for a in ("PG", "PPO", "DDPG") if a in set(ps.strategy)]
+    names = {"final_value": "final wealth  $p_T/p_0$", "sharpe": "annualised Sharpe"}
+
+    fig, axes = plt.subplots(1, len(metrics), figsize=(5.0 * len(metrics), 4.4))
+    for ax, metric in zip(np.atleast_1d(axes), metrics):
+        data = [ps[ps.strategy == a][metric].values for a in algos]
+        bp = ax.boxplot(data, labels=algos, widths=0.5, patch_artist=True,
+                        medianprops=dict(color="k", lw=1.4), showfliers=False)
+        for patch, a in zip(bp["boxes"], algos):
+            patch.set(facecolor=STRATEGY_COLORS[a], alpha=0.25, lw=1.0,
+                      edgecolor=STRATEGY_COLORS[a])
+        rng = np.random.default_rng(0)          # jitter must not move between runs
+        for i, (a, v) in enumerate(zip(algos, data), start=1):
+            ax.plot(i + rng.uniform(-0.13, 0.13, len(v)), v, "o", ms=4.5,
+                    color=STRATEGY_COLORS[a], mec="k", mew=0.4, alpha=0.9, zorder=3)
+        for name in ("UCRP", "UBAH", "Markowitz", "BestStock"):
+            if name in bl.index:
+                st = style_for(name)
+                ax.axhline(bl.loc[name, metric], color=st["color"], ls=st["ls"],
+                           lw=1.0, alpha=0.85, label=name)
+        ax.set_ylabel(names.get(metric, metric))
+        ax.set_xlabel("")
+    np.atleast_1d(axes)[0].legend(ncol=2, fontsize=7.5, loc="best", framealpha=0.9)
+    fig.suptitle(f"F9  Seed distributions on {split} (10 seeds, all shown)", y=1.0)
+    fig.tight_layout()
+    return save(fig, out_dir, f"F9_seed_distributions_{split}", run_id)
+
+
+def f10_forest(stats, out_dir, run_id="", alpha=0.05, split="test"):
+    """Forest plot of mean daily return differences, agent minus baseline, in bp.
+
+    Intervals are bootstrapped over seeds AND days (stats.nested_ci): a day-only band
+    answers 'was this seed lucky this year', which is the wrong question to put on an
+    algorithm when the seeds disagree. Thick bar = the alpha interval, thin line = the
+    Bonferroni-adjusted one. No asterisks: the correction is drawn, not annotated.
+    """
+    df = stats[stats.level == "seeds"].copy()
+    order = [a for a in ("PG", "PPO", "DDPG") if a in set(df.algo)]
+    bases = [b for b in ("UCRP", "UBAH", "Markowitz", "BestStock") if b in set(df.baseline)]
+    df = df.set_index(["algo", "baseline"])
+    has_adj = "ret_lo_adj" in df.columns
+
+    rows = [(a, b) for a in order for b in bases]
+    fig, ax = plt.subplots(figsize=(7.6, 0.42 * len(rows) + 1.8))
+    for y, (a, b) in enumerate(rows):
+        r = df.loc[(a, b)]
+        c = STRATEGY_COLORS[a]
+        if has_adj:
+            ax.plot([r["ret_lo_adj"] * 1e4, r["ret_hi_adj"] * 1e4], [y, y],
+                    color=c, lw=1.0, alpha=0.55, solid_capstyle="butt")
+        ax.plot([r["ret_lo"] * 1e4, r["ret_hi"] * 1e4], [y, y], color=c, lw=3.2,
+                alpha=0.85, solid_capstyle="butt")
+        ax.plot(r["ret_diff"] * 1e4, y, "o", ms=5.5, color=c, mec="k", mew=0.5, zorder=3)
+        ax.text(0.995, y, f"{int(r['n_better'])}/{int(r['n'])}", transform=
+                ax.get_yaxis_transform(), ha="right", va="center", fontsize=7.5,
+                color="#444444")
+    ax.axvline(0, color="k", lw=0.9, alpha=0.6)
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([f"{a}  vs  {b}" for a, b in rows], fontsize=8)
+    ax.invert_yaxis()
+    ax.set_xlabel("mean daily return difference (basis points)")
+    m = int(df["m"].iloc[0]) if "m" in df.columns else len(rows)
+    ax.set_title(f"F10  Agent minus baseline on {split}, bootstrap over seeds and days\n"
+                 f"thick = {int((1 - alpha) * 100)}%, thin = Bonferroni-adjusted "
+                 f"(m = {m}); right label = seeds better than baseline", fontsize=9)
+    fig.tight_layout()
+    return save(fig, out_dir, f"F10_forest_{split}", run_id)

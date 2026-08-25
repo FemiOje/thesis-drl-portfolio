@@ -7,6 +7,8 @@ command works in Phase 3.5 (baselines only) and in Phase 7 (everything).
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src import plots, results
@@ -45,6 +47,22 @@ def main(run_id="baselines"):
     for split in ("test", "validate", "train"):
         done.append(plots.f8_metric_heatmap(r["metrics"], FIGS, run_id, split))
 
+    # F9/F10 need per-seed agent results. F9 reads the committed per-seed metrics rather
+    # than recomputing: those numbers were produced with the real risk-free series, and a
+    # second Sharpe path here could silently disagree with F8.
+    per_seed = agent_dir / "metrics_per_seed.csv"
+    if agents is not None and per_seed.exists():
+        ps = pd.read_csv(per_seed)
+        for split in ("test", "validate"):
+            done.append(plots.f9_seed_distributions(ps, base["metrics"], FIGS, run_id, split))
+    # One forest per split that has a stats table. The validate-vs-test pair is the
+    # overfitting evidence: apparent significance on the selection split, none on test.
+    stats_csv = agent_dir / "stats_test.csv"
+    for split in ("test", "validate"):
+        f = agent_dir / f"stats_{split}.csv"
+        if f.exists():
+            done.append(plots.f10_forest(pd.read_csv(f), FIGS, run_id, split=split))
+
     for p in done:
         print(f"  {p.relative_to(PROJECT_ROOT)}  (+ .pdf)")
     n_strat = len(r["curves"]["test"])
@@ -53,6 +71,10 @@ def main(run_id="baselines"):
         print("skipped F1-F4: no training histories")
     if agents is None:
         print("skipped F9-F17: no agent runs yet")
+    elif not stats_csv.exists():
+        print("skipped F10: run scripts/07_stats.py first")
+    if agents is not None:
+        print("skipped F11-F17: not yet implemented")
 
 
 if __name__ == "__main__":
