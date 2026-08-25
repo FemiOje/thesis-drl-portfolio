@@ -166,3 +166,25 @@ def test_info_reports_concentration(env):
     assert abs(info["hhi"] - 1.0 / (M + 1)) < 1e-9
     assert abs(info["entropy"] - np.log(M + 1)) < 1e-9
     assert abs(info["max_weight"] - 1.0 / (M + 1)) < 1e-9
+
+
+# ---- SB3 integration guards ----
+
+def test_env_passes_sb3_env_checker(ds):
+    from stable_baselines3.common.env_checker import check_env
+    check_env(PortfolioEnv(ds["X"], ds["y"], CFG, ds["splits"]["validate"][:50]), warn=False)
+
+
+def test_tensor_subspace_is_not_treated_as_an_image(env):
+    """A (3, m, n) float Box trips SB3's image heuristic. If it were ever classed as an
+    image, SB3 would auto-wrap in VecTransposeImage and silently permute the axes the
+    EIIE extractor depends on."""
+    from stable_baselines3.common.preprocessing import is_image_space
+    assert not is_image_space(env.observation_space["tensor"])
+
+
+def test_vecenv_preserves_tensor_layout(ds):
+    from stable_baselines3.common.vec_env import DummyVecEnv
+    v = DummyVecEnv([lambda: PortfolioEnv(ds["X"], ds["y"], CFG, ds["splits"]["validate"])])
+    obs = v.reset()
+    assert obs["tensor"].shape == (1, CFG.env.n_features, M, CFG.env.window)

@@ -148,3 +148,15 @@ def write_manifest(path, tickers, rows, gate, extra):
     }
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     return payload
+
+
+def risk_free_daily(cfg, dates):
+    """^IRX 13-week T-bill, annualised percent -> daily simple rate, aligned to dates.
+    Returns (array, source_note); falls back to zeros if the series is unavailable."""
+    try:
+        download(["^IRX"], cfg.data.start, cfg.data.end, cfg.data.raw_dir)
+        s = pd.read_csv(cfg.data.raw_dir / "^IRX.csv", index_col="Date", parse_dates=True)["Close"]
+        s = s.reindex(pd.DatetimeIndex(dates)).ffill().bfill() / 100.0
+        return ((1.0 + s.values) ** (1.0 / 252) - 1.0), "^IRX 13-week T-bill"
+    except Exception as e:                                   # noqa: BLE001
+        return np.zeros(len(dates)), f"zero (assumed; ^IRX unavailable: {type(e).__name__})"
