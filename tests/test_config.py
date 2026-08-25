@@ -133,3 +133,42 @@ def test_negative_commission_is_rejected(tmp_path, raw):
     raw["env"]["commission"] = -0.001
     with pytest.raises(ConfigError, match="commission"):
         load_config(_write(tmp_path, raw))
+
+
+# ---- training budget is a controlled variable ----
+
+def test_all_three_algorithms_get_the_same_number_of_updates():
+    """Architecture, tau, gamma and cost model are already identical. If the budget
+    differs, "which algorithm won" is confounded with "which trained longest"."""
+    from src.config import batch_sizes, gradient_steps
+    cfg = load_config()
+    assert set(gradient_steps(cfg.agent).values()) == {60000}
+    assert set(batch_sizes(cfg.agent).values()) == {50}
+
+
+def test_unequal_budgets_are_rejected_at_load_time():
+    from src.config import ConfigError, _validate
+    cfg = load_config()
+    cfg.agent.ppo["total_timesteps"] *= 3
+    try:
+        with pytest.raises(ConfigError, match="not equal across algorithms"):
+            _validate(cfg)
+    finally:
+        cfg.agent.ppo["total_timesteps"] //= 3
+
+
+def test_evaluation_cadence_matches_across_algorithms():
+    """F1/F2/F4 put gradient steps on the x-axis, so the three must be sampled at
+    the same points or the curves are not comparable."""
+    cfg = load_config()
+    pg_evals = cfg.agent.pg["gradient_steps"] // cfg.agent.pg["eval_every"]
+    for name in ("ppo", "ddpg"):
+        a = getattr(cfg.agent, name)
+        assert a["total_timesteps"] // a["eval_every_steps"] == pg_evals
+
+
+def test_ddpg_learning_starts_does_not_swallow_a_trigger():
+    """SB3 trains only when num_timesteps > learning_starts, so learning_starts must
+    sit strictly inside the first train_freq window or one trigger is lost silently."""
+    d = load_config().agent.ddpg
+    assert d["learning_starts"] < d["train_freq"]

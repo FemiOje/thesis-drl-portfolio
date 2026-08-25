@@ -1,14 +1,16 @@
 """Frozen configuration, loaded once and passed down.
 Every experiment parameter lives in ``config/base.yaml`` and arrives here, validated, as an immutable dataclass.
 
-The validation is not decorative. Two failure modes in this project are silent 
-(they produce plausible results from a broken setup) and both are caught at load
+The validation is not decorative. Three failure modes in this project are silent
+(they produce plausible results from a broken setup) and all are caught at load
 time rather than in a test:
 
 * ``tau`` too low structurally caps the maximum single-asset allocation.
 * ``gamma`` != 1.0 confounds the learning rule with the planning horizon, because
   PG optimises an undiscounted objective (Jiang Eq. 21) while Stable-Baselines3
   defaults to 0.99.
+* an unequal training budget confounds "which algorithm" with "which got more
+  updates" — see gradient_steps().
 """
 
 from __future__ import annotations
@@ -50,6 +52,30 @@ def max_reachable_weight(tau: float, n_assets: int) -> float:
     hi = math.exp(tau)
     lo = math.exp(-tau)
     return hi / (hi + n_assets * lo)
+
+
+def gradient_steps(agent: "AgentConfig") -> dict[str, int]:
+    """Optimiser updates each algorithm performs over a full run.
+
+    PG   : one update per sampled batch.
+    PPO  : rollouts x n_epochs x minibatches, where a rollout of ``n_steps`` yields
+           ``ceil(n_steps / batch_size)`` minibatches (SB3 keeps the short last one).
+    DDPG : one trigger every ``train_freq`` env steps, ``gradient_steps`` updates each.
+
+    These are PREDICTIONS from the configuration. Phase 5 asserts them against SB3's
+    realised ``model._n_updates``, because only the realised count is evidence.
+    """
+    ppo, ddpg = agent.ppo, agent.ddpg
+    return {
+        "PG": int(agent.pg["gradient_steps"]),
+        "PPO": (ppo["total_timesteps"] // ppo["n_steps"]) * ppo["n_epochs"]
+               * math.ceil(ppo["n_steps"] / ppo["batch_size"]),
+        "DDPG": (ddpg["total_timesteps"] // ddpg["train_freq"]) * ddpg["gradient_steps"],
+    }
+
+
+def batch_sizes(agent: "AgentConfig") -> dict[str, int]:
+    return {k: int(getattr(agent, k.lower())["batch_size"]) for k in ("PG", "PPO", "DDPG")}
 
 
 @dataclass(frozen=True)
@@ -180,6 +206,18 @@ def _validate(cfg: Config) -> None:
             "rule with the planning horizon."
         )
 
+    # Training budget is a controlled variable, like the architecture and tau. An
+    # unequal budget would confound "which algorithm" with "which got more updates".
+    g = gradient_steps(cfg.agent)
+    if len(set(g.values())) != 1:
+        raise ConfigError(
+            f"training budgets are not equal across algorithms: {g}. "
+            "See src/config.gradient_steps() for the arithmetic behind each."
+        )
+    b = batch_sizes(cfg.agent)
+    if len(set(b.values())) != 1:
+        raise ConfigError(f"batch sizes differ across algorithms: {b}")
+
     if not cfg.run_seeds:
         raise ConfigError("run.seeds must not be empty")
     if len(set(cfg.run_seeds)) != len(cfg.run_seeds):
@@ -270,5 +308,6 @@ if __name__ == "__main__":  # pragma: no cover - manual inspection helper
     print(f"tensor shape = {c.env.tensor_shape(c.universe.n_assets)}")
     print(f"weight vector length = {c.universe.n_positions}")
     print(f"max reachable single-asset weight = {c.max_reachable_weight:.4f}")
+    print(f"gradient steps = {gradient_steps(c.agent)}  batch = {batch_sizes(c.agent)}")
     for s in c.data.splits:
         print(f"  {s.name:9s} {s.start} -> {s.end}")

@@ -1,0 +1,54 @@
+{
+  "algo": "PG",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "universe": [
+    "AAPL",
+    "JPM",
+    "NEE",
+    "XOM",
+    "JNJ",
+    "WMT",
+    "AMZN",
+    "UPS"
+  ],
+  "risk_free": "^IRX 13-week T-bill",
+  "hyperparams": {
+    "batch_size": 50,
+    "learning_rate": 3e-05,
+    "l2": 1e-08,
+    "gradient_steps": 60000,
+    "eval_every": 1500
+  },
+  "tau": 5.0,
+  "commission": 0.001,
+  "gamma": 1.0,
+  "gradient_steps_all": {
+    "PG": 60000,
+    "PPO": 60000,
+    "DDPG": 60000
+  },
+  "n_params": 783,
+  "best_step": [
+    1500,
+    1500,
+    60000,
+    1500,
+    48000,
+    58500,
+    1500,
+    1500,
+    1500,
+    1500
+  ]
+}

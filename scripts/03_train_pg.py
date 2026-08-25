@@ -4,6 +4,7 @@
 """
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -19,7 +20,7 @@ from src import metrics as Mx
 from src import universe as U
 from src.agents.pg import PGPolicy, train
 from src.backtest import backtest
-from src.config import PROJECT_ROOT, load_config
+from src.config import PROJECT_ROOT, gradient_steps, load_config
 from src.env import PortfolioEnv
 
 SPLITS = ("train", "validate", "test")
@@ -97,6 +98,14 @@ def main():
     med = per_seed.groupby(["split", "strategy"], as_index=False)[
         [c for c in cols if c not in ("split", "strategy")]].median()
     med[cols].to_csv(out.parent / "metrics.csv", index=False, float_format="%.6f")
+
+    (out.parent / "meta.json").write_text(json.dumps(
+        {"algo": "PG", "seeds": seeds, "universe": U.HEADLINE, "risk_free": rf_note,
+         "hyperparams": dict(cfg.agent.pg), "tau": cfg.env.tau,
+         "commission": cfg.env.commission, "gamma": cfg.agent.gamma,
+         "gradient_steps_all": gradient_steps(cfg.agent),
+         "n_params": sum(q.numel() for q in actor.parameters()),
+         "best_step": [int(h["best_step"]) for h in hists]}, indent=2), encoding="utf-8")
 
     print(f"\nrisk-free: {rf_note}")
     print(per_seed.groupby("split")[["final_value", "sharpe", "MDD", "turnover",
