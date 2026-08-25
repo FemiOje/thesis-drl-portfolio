@@ -1,0 +1,438 @@
+{
+  "retrieved": "2026-08-25T00:54:47",
+  "source": "yfinance",
+  "yfinance_version": "0.2.54",
+  "auto_adjust": true,
+  "tickers": [
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "JPM",
+    "BAC",
+    "WFC",
+    "NEE",
+    "DUK",
+    "SO",
+    "XOM",
+    "CVX",
+    "COP",
+    "JNJ",
+    "UNH",
+    "PFE",
+    "WMT",
+    "PG",
+    "KO",
+    "AMZN",
+    "TSLA",
+    "HD",
+    "UPS",
+    "HON",
+    "UNP"
+  ],
+  "rows_per_ticker": {
+    "AAPL": 1254,
+    "MSFT": 1254,
+    "NVDA": 1254,
+    "JPM": 1254,
+    "BAC": 1254,
+    "WFC": 1254,
+    "NEE": 1254,
+    "DUK": 1254,
+    "SO": 1254,
+    "XOM": 1254,
+    "CVX": 1254,
+    "COP": 1254,
+    "JNJ": 1254,
+    "UNH": 1254,
+    "PFE": 1254,
+    "WMT": 1254,
+    "PG": 1254,
+    "KO": 1254,
+    "AMZN": 1254,
+    "TSLA": 1254,
+    "HD": 1254,
+    "UPS": 1254,
+    "HON": 1254,
+    "UNP": 1254
+  },
+  "correlation_gate": {
+    "M8_basket1": {
+      "threshold": 0.7,
+      "measured_on": "train",
+      "applied": true,
+      "initial_tickers": [
+        "AAPL",
+        "JPM",
+        "NEE",
+        "XOM",
+        "JNJ",
+        "WMT",
+        "AMZN",
+        "UPS"
+      ],
+      "final_tickers": [
+        "AAPL",
+        "JPM",
+        "NEE",
+        "XOM",
+        "JNJ",
+        "WMT",
+        "AMZN",
+        "UPS"
+      ],
+      "max_corr": 0.57576,
+      "max_pair": [
+        "AAPL",
+        "AMZN"
+      ],
+      "passed": true,
+      "substitutions": [],
+      "rounds": [
+        {
+          "round": 1,
+          "tickers": [
+            "AAPL",
+            "JPM",
+            "NEE",
+            "XOM",
+            "JNJ",
+            "WMT",
+            "AMZN",
+            "UPS"
+          ],
+          "max_pair": [
+            "AAPL",
+            "AMZN"
+          ],
+          "max_corr": 0.57576,
+          "breaches": []
+        }
+      ]
+    },
+    "M8_basket2": {
+      "threshold": 0.7,
+      "measured_on": "train",
+      "applied": true,
+      "initial_tickers": [
+        "MSFT",
+        "BAC",
+        "DUK",
+        "CVX",
+        "UNH",
+        "PG",
+        "TSLA",
+        "HON"
+      ],
+      "final_tickers": [
+        "MSFT",
+        "BAC",
+        "DUK",
+        "CVX",
+        "UNH",
+        "PG",
+        "TSLA",
+        "HON"
+      ],
+      "max_corr": 0.513398,
+      "max_pair": [
+        "DUK",
+        "PG"
+      ],
+      "passed": true,
+      "substitutions": [],
+      "rounds": [
+        {
+          "round": 1,
+          "tickers": [
+            "MSFT",
+            "BAC",
+            "DUK",
+            "CVX",
+            "UNH",
+            "PG",
+            "TSLA",
+            "HON"
+          ],
+          "max_pair": [
+            "DUK",
+            "PG"
+          ],
+          "max_corr": 0.513398,
+          "breaches": []
+        }
+      ]
+    },
+    "M8_basket3": {
+      "threshold": 0.7,
+      "measured_on": "train",
+      "applied": true,
+      "initial_tickers": [
+        "NVDA",
+        "WFC",
+        "SO",
+        "COP",
+        "PFE",
+        "KO",
+        "HD",
+        "UNP"
+      ],
+      "final_tickers": [
+        "NVDA",
+        "WFC",
+        "SO",
+        "COP",
+        "PFE",
+        "KO",
+        "HD",
+        "UNP"
+      ],
+      "max_corr": 0.536946,
+      "max_pair": [
+        "SO",
+        "KO"
+      ],
+      "passed": true,
+      "substitutions": [],
+      "rounds": [
+        {
+          "round": 1,
+          "tickers": [
+            "NVDA",
+            "WFC",
+            "SO",
+            "COP",
+            "PFE",
+            "KO",
+            "HD",
+            "UNP"
+          ],
+          "max_pair": [
+            "SO",
+            "KO"
+          ],
+          "max_corr": 0.536946,
+          "breaches": []
+        }
+      ]
+    },
+    "M4": {
+      "threshold": 0.7,
+      "measured_on": "train",
+      "applied": true,
+      "initial_tickers": [
+        "AAPL",
+        "JPM",
+        "NEE",
+        "XOM"
+      ],
+      "final_tickers": [
+        "AAPL",
+        "JPM",
+        "NEE",
+        "XOM"
+      ],
+      "max_corr": 0.373856,
+      "max_pair": [
+        "AAPL",
+        "JPM"
+      ],
+      "passed": true,
+      "substitutions": [],
+      "rounds": [
+        {
+          "round": 1,
+          "tickers": [
+            "AAPL",
+            "JPM",
+            "NEE",
+            "XOM"
+          ],
+          "max_pair": [
+            "AAPL",
+            "JPM"
+          ],
+          "max_corr": 0.373856,
+          "breaches": []
+        }
+      ]
+    },
+    "M16": {
+      "threshold": 0.7,
+      "measured_on": "train",
+      "applied": false,
+      "initial_tickers": [
+        "AAPL",
+        "MSFT",
+        "JPM",
+        "BAC",
+        "NEE",
+        "DUK",
+        "XOM",
+        "CVX",
+        "JNJ",
+        "UNH",
+        "WMT",
+        "PG",
+        "AMZN",
+        "TSLA",
+        "UPS",
+        "HON"
+      ],
+      "final_tickers": [
+        "AAPL",
+        "MSFT",
+        "JPM",
+        "BAC",
+        "NEE",
+        "DUK",
+        "XOM",
+        "CVX",
+        "JNJ",
+        "UNH",
+        "WMT",
+        "PG",
+        "AMZN",
+        "TSLA",
+        "UPS",
+        "HON"
+      ],
+      "max_corr": 0.85492,
+      "max_pair": [
+        "XOM",
+        "CVX"
+      ],
+      "passed": false,
+      "substitutions": [],
+      "rounds": [
+        {
+          "round": 1,
+          "tickers": [
+            "AAPL",
+            "MSFT",
+            "JPM",
+            "BAC",
+            "NEE",
+            "DUK",
+            "XOM",
+            "CVX",
+            "JNJ",
+            "UNH",
+            "WMT",
+            "PG",
+            "AMZN",
+            "TSLA",
+            "UPS",
+            "HON"
+          ],
+          "max_pair": [
+            "XOM",
+            "CVX"
+          ],
+          "max_corr": 0.85492,
+          "breaches": [
+            {
+              "pair": [
+                "XOM",
+                "CVX"
+              ],
+              "corr": 0.85492
+            },
+            {
+              "pair": [
+                "JPM",
+                "BAC"
+              ],
+              "corr": 0.813633
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "window": "2021-08-25..2026-08-24",
+  "universes": {
+    "M8_basket1": [
+      "AAPL",
+      "JPM",
+      "NEE",
+      "XOM",
+      "JNJ",
+      "WMT",
+      "AMZN",
+      "UPS"
+    ],
+    "M8_basket2": [
+      "MSFT",
+      "BAC",
+      "DUK",
+      "CVX",
+      "UNH",
+      "PG",
+      "TSLA",
+      "HON"
+    ],
+    "M8_basket3": [
+      "NVDA",
+      "WFC",
+      "SO",
+      "COP",
+      "PFE",
+      "KO",
+      "HD",
+      "UNP"
+    ],
+    "M4": [
+      "AAPL",
+      "JPM",
+      "NEE",
+      "XOM"
+    ],
+    "M16": [
+      "AAPL",
+      "MSFT",
+      "JPM",
+      "BAC",
+      "NEE",
+      "DUK",
+      "XOM",
+      "CVX",
+      "JNJ",
+      "UNH",
+      "WMT",
+      "PG",
+      "AMZN",
+      "TSLA",
+      "UPS",
+      "HON"
+    ]
+  },
+  "checks": {
+    "no_nan_raw": true,
+    "no_nan_tensor": true,
+    "no_nan_y": true,
+    "tensor_shape": [
+      3,
+      8,
+      20
+    ],
+    "last_close_column_is_one": true,
+    "tensor_positive": true,
+    "causal_lookback": true,
+    "split_sizes": {
+      "train": 735,
+      "validate": 249,
+      "test": 251
+    },
+    "split_disjoint": true,
+    "first_date": "2021-09-22",
+    "last_date": "2026-08-24",
+    "config_end": "2026-08-24",
+    "n_decision_dates": 1235
+  },
+  "access_notes": [
+    "yfinance pinned 0.2.54 (last requests-only release): curl_cffi, required by >=0.2.55, is blocked by Windows Application Control on this machine.",
+    "yfinance's cookie/crumb bootstrap (fc.yahoo.com 404, /v1/test/getcrumb 401) is unreachable here and is misreported as a rate limit; bypassed in src/data.py:_patch_yfinance. The v8 chart endpoint needs no crumb.",
+    "Qlib cross-check: not run (optional control, plan \u00a73)."
+  ],
+  "market_cap_provenance": "pre-registered constants in config/universe.yaml; AAPL/MSFT and JNJ/UNH flagged close_call"
+}

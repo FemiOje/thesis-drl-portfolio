@@ -8,20 +8,20 @@ run:
 
 data:
   source: yfinance          # yfinance | qlib  (see plan §3 — qlib US data is Yahoo data)
-  start: 2021-09-01
-  end: 2026-08-31           # trailing 5 years, ~1260 trading days
+  start: 2021-08-25
+  end: 2026-08-24           # trailing 5 years; ends on the last completed session
   raw_dir: data/raw         # COMMITTED — reproducibility must not depend on a live API
   processed_dir: data/processed
   splits:
     # Chronological 60/20/20, whole years. Validated as contiguous and
     # non-overlapping at load time by src/config.py.
-    - {name: train,    start: 2021-09-01, end: 2024-08-31}   # ~756 d
-    - {name: validate, start: 2024-09-01, end: 2025-08-31}   # ~252 d
-    - {name: test,     start: 2025-09-01, end: 2026-08-31}   # ~252 d — scored ONCE
+    - {name: train,    start: 2021-08-25, end: 2024-08-24}   # ~756 d
+    - {name: validate, start: 2024-08-25, end: 2025-08-24}   # ~252 d
+    - {name: test,     start: 2025-08-25, end: 2026-08-24}   # ~252 d — scored ONCE
 
 universe:
   n_assets: 8               # risky assets; +1 cash => 9-dim weight vector (Eq. 5)
-  as_of: 2021-09-01         # market-cap measurement date — resolves survivorship bias
+  as_of: 2021-08-25         # market-cap measurement date — resolves survivorship bias
   correlation_gate: 0.70    # pre-registered; measured on TRAIN split only
 
 env:

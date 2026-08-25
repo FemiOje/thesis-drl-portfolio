@@ -1,7 +1,6 @@
-"""Phase 0 gate: the configuration loads, and the two silent failure modes are caught.
+"""The configuration loads, and the two silent failure modes are caught.
 
-These are real tests, not stubs. The `tau` guard in particular encodes the failure
-described in IMPLEMENTATION_PLAN.md §2, where a too-low temperature caps the maximum
+The `tau` guard in particular encodes the failure where a too-low temperature caps the maximum
 allocation and produces plausible but meaningless results.
 """
 
@@ -67,7 +66,7 @@ def test_splits_span_the_declared_window(cfg):
 
 def test_universe_as_of_equals_data_start(cfg):
     """Measuring market caps later than the window start reintroduces look-ahead bias."""
-    assert cfg.universe.as_of == cfg.data.start == date(2021, 9, 1)
+    assert cfg.universe.as_of == cfg.data.start == date(2021, 8, 25)
 
 
 def test_gamma_is_undiscounted(cfg):
