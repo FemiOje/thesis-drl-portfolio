@@ -1,6 +1,5 @@
 # Asset universe: the RULE, not a hand-picked list.
-# See docs/IMPLEMENTATION_PLAN.md §0.
-#
+
 # Sectors below are pre-specified on ECONOMIC grounds. They are never chosen from
 # realised correlations, which would be data snooping on the study window. Within
 # each sector the constituent is then determined mechanically, leaving no discretion.
