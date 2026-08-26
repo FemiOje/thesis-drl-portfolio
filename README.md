@@ -1,7 +1,7 @@
 # Reinforcement Learning for Stock Market Portfolio Management
 
 B.Sc. Computer Science final year project, University of Lagos.
-Ojetokun Oluwafemi Akinwale (190805019)
+Ojetokun Oluwafemi Akinwale
 
 A comparative evaluation of three continuous-action deep reinforcement learning
 algorithms — **Policy Gradient (PG)**, **Proximal Policy Optimization (PPO)** and
