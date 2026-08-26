@@ -1,0 +1,435 @@
+# Asset universe: the RULE, not a hand-picked list.
+
+# Sectors below are pre-specified on ECONOMIC grounds. They are never chosen from
+# realised correlations, which would be data snooping on the study window. Within
+# each sector the constituent is then determined mechanically, leaving no discretion.
+
+rule:
+  as_of: 2021-08-25         # window start; market caps below were measured 2021-09-01
+  criterion: largest S&P 500 constituent by market capitalisation within the sector
+  exclusions:
+    - diversified holding companies   # e.g. BRK.B — itself a portfolio, confounds the study
+  requires: complete daily price history across data.start..data.end
+  taxonomy_note: >
+    GICS as of 2021 has ELEVEN sectors. Real Estate separated from Financials in 2016
+    and Communication Services was created in 2018, so GOOGL/META sit in Communication
+    Services, not Information Technology. Note also that V and MA were classified under
+    Information Technology (Data Processing & Outsourced Services) until the March 2023
+    GICS revision moved them to Financials; the 2021 classification is the one that
+    applies at the as_of date and is the one used here.
+
+# ---------------------------------------------------------------------------
+# Market capitalisations at the as_of date.
+#
+# PROVENANCE. These are pre-registered CONSTANTS, not values computed at run time.
+# That is a deliberate choice, because neither empirical route is sound:
+#
+#   1. Historical shares outstanding (yfinance `get_shares_full`) requires Yahoo's
+#      fundamentals-timeseries endpoint, which is not reachable from this machine
+#      (see MANIFEST.json:access_notes).
+#   2. Computing cap = close x shares from the downloaded price series is WRONG in
+#      principle: Yahoo's close is retroactively split-adjusted, so AMZN's
+#      2021-09-01 close is returned as ~$174 (post the 20:1 split of June 2022)
+#      while contemporaneous shares outstanding were ~507M. Mixing an adjusted
+#      price with a historical share count produces a nonsense capitalisation.
+#
+# So the figures are recorded here with their inputs, fixed before any run, and the
+# selection rule is applied mechanically to them by src/universe.py. `raw_close` is
+# the UNADJUSTED close on 2021-09-01 (as printed at the time) and `shares` is the
+# diluted/basic shares outstanding from the most recent quarterly filing on or before
+# that date. market_cap_usd_bn = raw_close x shares.
+#
+# The two rankings tight enough that a sourcing error could flip them are flagged
+# `close_call: true`. Verify those two against a citable source before Chapter 3 is
+# written; the others clear by wide margins.
+# ---------------------------------------------------------------------------
+
+sectors:
+  - name: Information Technology
+    driver: long-duration growth
+    candidates:
+      - {ticker: AAPL, raw_close: 152.51, shares_bn: 16.530, market_cap_usd_bn: 2521.0, close_call: true}
+      - {ticker: MSFT, raw_close: 301.83, shares_bn: 7.510, market_cap_usd_bn: 2266.7, close_call: true}
+      - {ticker: NVDA, raw_close: 223.85, shares_bn: 2.500, market_cap_usd_bn: 559.6}
+
+  - name: Financials
+    driver: rate-sensitive, positive — net interest margin widens as rates rise
+    candidates:
+      - {ticker: JPM, raw_close: 156.24, shares_bn: 2.958, market_cap_usd_bn: 462.2}
+      - {ticker: BAC, raw_close: 41.62,  shares_bn: 8.340, market_cap_usd_bn: 347.1}
+      - {ticker: WFC, raw_close: 45.83,  shares_bn: 4.110, market_cap_usd_bn: 188.4}
+
+  - name: Utilities
+    driver: rate-sensitive, negative — bond proxy; deliberate opposite of Financials
+    candidates:
+      - {ticker: NEE, raw_close: 83.39, shares_bn: 1.961, market_cap_usd_bn: 163.5}
+      - {ticker: DUK, raw_close: 102.61, shares_bn: 0.769, market_cap_usd_bn: 78.9}
+      - {ticker: SO,  raw_close: 63.44, shares_bn: 1.058, market_cap_usd_bn: 67.1}
+
+  - name: Energy
+    driver: commodity and inflation exposure; decoupled from duration
+    candidates:
+      - {ticker: XOM, raw_close: 54.72, shares_bn: 4.233, market_cap_usd_bn: 231.6}
+      - {ticker: CVX, raw_close: 96.94, shares_bn: 1.931, market_cap_usd_bn: 187.2}
+      - {ticker: COP, raw_close: 55.53, shares_bn: 1.353, market_cap_usd_bn: 75.1}
+
+  - name: Health Care
+    driver: defensive — demand largely independent of the cycle
+    candidates:
+      - {ticker: JNJ, raw_close: 170.64, shares_bn: 2.632, market_cap_usd_bn: 449.1, close_call: true}
+      - {ticker: UNH, raw_close: 418.50, shares_bn: 0.944, market_cap_usd_bn: 395.1, close_call: true}
+      - {ticker: PFE, raw_close: 45.68,  shares_bn: 5.610, market_cap_usd_bn: 256.3}
+
+  - name: Consumer Staples
+    driver: defensive, low beta — inelastic demand
+    candidates:
+      - {ticker: WMT, raw_close: 147.46, shares_bn: 2.792, market_cap_usd_bn: 411.7}
+      - {ticker: PG,  raw_close: 143.61, shares_bn: 2.444, market_cap_usd_bn: 351.0}
+      - {ticker: KO,  raw_close: 56.41,  shares_bn: 4.311, market_cap_usd_bn: 243.2}
+
+  - name: Consumer Discretionary
+    driver: cyclical consumer demand
+    candidates:
+      - {ticker: AMZN, raw_close: 3479.00, shares_bn: 0.507, market_cap_usd_bn: 1763.8}
+      - {ticker: TSLA, raw_close: 729.30,  shares_bn: 0.999, market_cap_usd_bn: 728.6}
+      - {ticker: HD,   raw_close: 328.28,  shares_bn: 1.058, market_cap_usd_bn: 347.3}
+
+  - name: Industrials
+    driver: cyclical capex and freight activity
+    candidates:
+      - {ticker: UPS, raw_close: 191.42, shares_bn: 0.872, market_cap_usd_bn: 166.9}
+      - {ticker: HON, raw_close: 225.83, shares_bn: 0.687, market_cap_usd_bn: 155.1}
+      - {ticker: UNP, raw_close: 220.13, shares_bn: 0.655, market_cap_usd_bn: 144.2}
+
+excluded_sectors:
+  - name: Communication Services
+    reason: >
+      Driver duplication. Its mega-caps (GOOGL, META) are advertising-funded growth
+      businesses duplicating Information Technology's factor; its telecoms (VZ, T)
+      duplicate Utilities' rate sensitivity. Adds a sector without adding a driver.
+  - name: Materials
+    reason: Driver duplication — largely cyclical, already covered by Industrials.
+  - name: Real Estate
+    reason: Driver duplication — rate-sensitive, already covered by Utilities.
+
+# ---------------------------------------------------------------------------
+# Mechanical extensions of the rule. Both are pre-registered so that the M and
+# basket sweeps (plan §4, F15/F16) involve no discretion whatsoever.
+# ---------------------------------------------------------------------------
+
+# base.yaml:sweeps.n_assets = [4, 8, 16]
+scale_rule:
+  8: one constituent per sector — the sector's rank-1 name. THE HEADLINE UNIVERSE.
+  16: two constituents per sector — the sector's rank-1 and rank-2 names.
+  4: >
+    Rank-1 name from the four sectors spanning the design's two orthogonal axes:
+    Information Technology (growth / long duration), Financials (rate-sensitive
+    positive), Utilities (rate-sensitive negative) and Energy (commodity / inflation).
+    Chosen on driver-coverage grounds and fixed in advance, never from realised returns.
+  4_sectors: [Information Technology, Financials, Utilities, Energy]
+
+# base.yaml:sweeps.basket_rank = [1, 2, 3] — the F16 alternative baskets, which
+# separate "these eight names" from "eight names". Basket k takes the k-th largest
+# constituent in each sector. Basket 1 IS the headline universe.
+basket_rule:
+  1: rank-1 constituent per sector (headline)
+  2: rank-2 constituent per sector
+  3: rank-3 constituent per sector
+
+# Pre-registered before any run. Recorded here so the commit history proves it was
+# fixed in advance rather than chosen after seeing results.
+# `result` and `resolved` below are written by scripts/01_build_data.py.
+correlation_gate:
+  threshold: 0.7
+  metric: pairwise correlation of simple daily returns
+  measured_on: train
+  action: substitute the next-largest constituent in the affected sector, then re-check
+  max_rounds: 3
+  applies_to:
+  - one_per_sector
+  tie_break: replace the constituent of the later-declared sector
+  result:
+    M8_basket1:
+      threshold: 0.7
+      measured_on: train
+      applied: true
+      initial_tickers:
+      - AAPL
+      - JPM
+      - NEE
+      - XOM
+      - JNJ
+      - WMT
+      - AMZN
+      - UPS
+      final_tickers:
+      - AAPL
+      - JPM
+      - NEE
+      - XOM
+      - JNJ
+      - WMT
+      - AMZN
+      - UPS
+      max_corr: 0.57576
+      max_pair: &id001
+      - AAPL
+      - AMZN
+      passed: true
+      substitutions: []
+      rounds:
+      - round: 1
+        tickers:
+        - AAPL
+        - JPM
+        - NEE
+        - XOM
+        - JNJ
+        - WMT
+        - AMZN
+        - UPS
+        max_pair: *id001
+        max_corr: 0.57576
+        breaches: []
+    M8_basket2:
+      threshold: 0.7
+      measured_on: train
+      applied: true
+      initial_tickers:
+      - MSFT
+      - BAC
+      - DUK
+      - CVX
+      - UNH
+      - PG
+      - TSLA
+      - HON
+      final_tickers:
+      - MSFT
+      - BAC
+      - DUK
+      - CVX
+      - UNH
+      - PG
+      - TSLA
+      - HON
+      max_corr: 0.513398
+      max_pair: &id002
+      - DUK
+      - PG
+      passed: true
+      substitutions: []
+      rounds:
+      - round: 1
+        tickers:
+        - MSFT
+        - BAC
+        - DUK
+        - CVX
+        - UNH
+        - PG
+        - TSLA
+        - HON
+        max_pair: *id002
+        max_corr: 0.513398
+        breaches: []
+    M8_basket3:
+      threshold: 0.7
+      measured_on: train
+      applied: true
+      initial_tickers:
+      - NVDA
+      - WFC
+      - SO
+      - COP
+      - PFE
+      - KO
+      - HD
+      - UNP
+      final_tickers:
+      - NVDA
+      - WFC
+      - SO
+      - COP
+      - PFE
+      - KO
+      - HD
+      - UNP
+      max_corr: 0.536946
+      max_pair: &id003
+      - SO
+      - KO
+      passed: true
+      substitutions: []
+      rounds:
+      - round: 1
+        tickers:
+        - NVDA
+        - WFC
+        - SO
+        - COP
+        - PFE
+        - KO
+        - HD
+        - UNP
+        max_pair: *id003
+        max_corr: 0.536946
+        breaches: []
+    M4:
+      threshold: 0.7
+      measured_on: train
+      applied: true
+      initial_tickers:
+      - AAPL
+      - JPM
+      - NEE
+      - XOM
+      final_tickers:
+      - AAPL
+      - JPM
+      - NEE
+      - XOM
+      max_corr: 0.373856
+      max_pair: &id004
+      - AAPL
+      - JPM
+      passed: true
+      substitutions: []
+      rounds:
+      - round: 1
+        tickers:
+        - AAPL
+        - JPM
+        - NEE
+        - XOM
+        max_pair: *id004
+        max_corr: 0.373856
+        breaches: []
+    M16:
+      threshold: 0.7
+      measured_on: train
+      applied: false
+      initial_tickers:
+      - AAPL
+      - MSFT
+      - JPM
+      - BAC
+      - NEE
+      - DUK
+      - XOM
+      - CVX
+      - JNJ
+      - UNH
+      - WMT
+      - PG
+      - AMZN
+      - TSLA
+      - UPS
+      - HON
+      final_tickers:
+      - AAPL
+      - MSFT
+      - JPM
+      - BAC
+      - NEE
+      - DUK
+      - XOM
+      - CVX
+      - JNJ
+      - UNH
+      - WMT
+      - PG
+      - AMZN
+      - TSLA
+      - UPS
+      - HON
+      max_corr: 0.85492
+      max_pair: &id005
+      - XOM
+      - CVX
+      passed: false
+      substitutions: []
+      rounds:
+      - round: 1
+        tickers:
+        - AAPL
+        - MSFT
+        - JPM
+        - BAC
+        - NEE
+        - DUK
+        - XOM
+        - CVX
+        - JNJ
+        - UNH
+        - WMT
+        - PG
+        - AMZN
+        - TSLA
+        - UPS
+        - HON
+        max_pair: *id005
+        max_corr: 0.85492
+        breaches:
+        - pair:
+          - XOM
+          - CVX
+          corr: 0.85492
+        - pair:
+          - JPM
+          - BAC
+          corr: 0.813633
+
+resolved:
+  tickers:
+    M8_basket1:
+    - AAPL
+    - JPM
+    - NEE
+    - XOM
+    - JNJ
+    - WMT
+    - AMZN
+    - UPS
+    M8_basket2:
+    - MSFT
+    - BAC
+    - DUK
+    - CVX
+    - UNH
+    - PG
+    - TSLA
+    - HON
+    M8_basket3:
+    - NVDA
+    - WFC
+    - SO
+    - COP
+    - PFE
+    - KO
+    - HD
+    - UNP
+    M4:
+    - AAPL
+    - JPM
+    - NEE
+    - XOM
+    M16:
+    - AAPL
+    - MSFT
+    - JPM
+    - BAC
+    - NEE
+    - DUK
+    - XOM
+    - CVX
+    - JNJ
+    - UNH
+    - WMT
+    - PG
+    - AMZN
+    - TSLA
+    - UPS
+    - HON
+  market_caps_as_of: '2021-09-01'
+  resolved_on: '2026-08-25'

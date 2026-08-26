@@ -1,0 +1,20 @@
+{
+  "universe": [
+    "AAPL",
+    "JPM",
+    "NEE",
+    "XOM",
+    "JNJ",
+    "WMT",
+    "AMZN",
+    "UPS"
+  ],
+  "risk_free": "^IRX 13-week T-bill",
+  "commission": 0.001,
+  "tau": 5.0,
+  "splits": {
+    "train": 735,
+    "validate": 249,
+    "test": 251
+  }
+}

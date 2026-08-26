@@ -1,0 +1,82 @@
+{
+  "algo": "PPO",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "universe": [
+    "AAPL",
+    "JPM",
+    "NEE",
+    "XOM",
+    "JNJ",
+    "WMT",
+    "AMZN",
+    "UPS"
+  ],
+  "risk_free": "^IRX 13-week T-bill",
+  "hyperparams": {
+    "total_timesteps": 300000,
+    "n_steps": 500,
+    "batch_size": 50,
+    "n_epochs": 10,
+    "eval_every_steps": 7500,
+    "learning_rate": 0.0003,
+    "share_features_extractor": false
+  },
+  "tau": 5.0,
+  "commission": 0.001,
+  "gamma": 1.0,
+  "gradient_steps_all": {
+    "PG": 60000,
+    "PPO": 60000,
+    "DDPG": 60000
+  },
+  "realised_updates": [
+    60000,
+    60000,
+    60000,
+    60000,
+    60000,
+    60000,
+    60000,
+    60000,
+    60000,
+    60000
+  ],
+  "optimizer_steps": {},
+  "resumed": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "extractor_params": 783,
+  "share_features_extractor": false,
+  "best_step": [
+    58400,
+    8900,
+    8900,
+    5900,
+    56900,
+    56900,
+    1400,
+    44900,
+    5900,
+    8900
+  ]
+}

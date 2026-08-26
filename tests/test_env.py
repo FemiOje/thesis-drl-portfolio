@@ -1,155 +1,190 @@
-"""Non-negotiable unit tests for the portfolio environment.
-
-The four mandated checks:
-  1. weights always sum to 1;
-  2. with c = 0, final wealth == analytic product Π_t (y_t · w_{t-1})  (to 1e-8);
-  3. μ_t iteration converges and lies in (0, 1];
-  4. an all-cash policy yields r_t ≈ 0 every step.
-
-Plus a few guardrail tests (spaces, determinism, softmax validity).
-
-Run:  python -m pytest tests/test_env.py -v
-"""
-
-from __future__ import annotations
-
-import os
-import sys
+"""Phase 2 gate: simplex projection, tau reachability, UCRP equivalence."""
 
 import numpy as np
+import pandas as pd
 import pytest
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for sub in ("env", "data"):
-    p = os.path.join(_ROOT, sub)
-    if p not in sys.path:
-        sys.path.insert(0, p)
+from src import data as D
+from src import universe as U
+from src.config import load_config
+from src.costs import drift, transaction_remainder
+from src.env import PortfolioEnv, project_to_simplex
 
-import data_loader as dl  # noqa: E402
-import portfolio_env as pe  # noqa: E402
+CFG = load_config()
+M = CFG.universe.n_assets
 
 
-# ---------------------------------------------------------------- fixtures
 @pytest.fixture(scope="module")
-def dataset():
-    """Cached dataset — reads data/processed (or raw CSVs); never re-downloads."""
-    return dl.build_dataset()
+def ds():
+    return D.build_dataset(U.HEADLINE, CFG)
 
 
-def _cash_biased_action(n: int) -> np.ndarray:
-    """Action whose softmax is (essentially exactly) all-cash [1, 0, ..., 0]."""
-    a = np.full(n, -50.0)
-    a[0] = 50.0
-    return a
+@pytest.fixture(scope="module")
+def env(ds):
+    return PortfolioEnv(ds["X"], ds["y"], CFG, ds["splits"]["validate"])
 
 
-# ---------------------------------------------------------------- test 1
-def test_weights_always_sum_to_one(dataset):
-    """(1) Applied weights sum to 1 for every step, under random actions."""
+# ---- projection ----
+
+def test_tau_reaches_the_full_simplex():
+    """tau too low silently caps the maximum allocation. At tau=1 with 8 risky assets
+    the ceiling is ~0.48 and nothing warns you."""
+    a = np.full(M + 1, -1.0)
+    a[0] = 1.0
+    w_max = project_to_simplex(a, CFG.env.tau)[0]
+    assert w_max > 0.95, f"tau={CFG.env.tau} caps max allocation at {w_max:.3f}"
+
+
+def test_tau_one_would_fail_the_reachability_bound():
+    a = np.full(M + 1, -1.0)
+    a[0] = 1.0
+    assert project_to_simplex(a, 1.0)[0] < 0.5
+
+
+def test_projection_is_a_simplex():
     rng = np.random.default_rng(0)
-    env = pe.make_env("train", commission=0.0025, dataset=dataset,
-                      episode_length=200, random_start=True)
-    for ep in range(3):
-        obs, _ = env.reset(seed=ep)
-        # observed previous-weights are valid too
-        assert np.isclose(obs["w_prev"].sum(), 1.0, atol=1e-6)
-        term = trunc = False
-        while not (term or trunc):
-            a = rng.uniform(-pe.ACTION_BOUND, pe.ACTION_BOUND, size=env.action_space.shape)
-            obs, r, term, trunc, info = env.step(a)
-            w = info["weights"]
-            assert np.all(w >= 0.0)
-            assert np.isclose(w.sum(), 1.0, atol=1e-9), f"weights sum {w.sum()}"
-            assert np.isclose(obs["w_prev"].sum(), 1.0, atol=1e-6)
+    for a in rng.uniform(-1, 1, (500, M + 1)):
+        w = project_to_simplex(a, CFG.env.tau)
+        assert abs(w.sum() - 1.0) < 1e-9
+        assert (w >= 0).all()
 
 
-# ---------------------------------------------------------------- test 2
-def test_zero_cost_wealth_matches_analytic_product(dataset):
-    """(2) With c = 0, env wealth == Π_t (y_{t+1} · w_t), computed independently."""
-    env = pe.make_env("val", commission=0.0, dataset=dataset,
-                      episode_length=None, random_start=False)
-    rng = np.random.default_rng(42)
-    env.reset(seed=0)
-
-    # Build the cash-augmented price-relative table independently from the data.
-    y_stocks = dataset.y
-    cash = np.ones((y_stocks.shape[0], 1))
-    y_ext = np.concatenate([cash, y_stocks], axis=1)  # (T, m+1)
-
-    analytic = 1.0
-    term = trunc = False
-    while not (term or trunc):
-        a = rng.uniform(-pe.ACTION_BOUND, pe.ACTION_BOUND, size=env.action_space.shape)
-        _, r, term, trunc, info = env.step(a)
-        t = info["t"]
-        w = info["weights"]
-        analytic *= float(np.dot(y_ext[t + 1], w))
-        # reward must equal ln(gross) exactly when cost-free (μ == 1)
-        assert np.isclose(info["mu"], 1.0, atol=1e-12)
-        assert np.isclose(r, np.log(np.dot(y_ext[t + 1], w)), atol=1e-10)
-
-    assert np.isclose(env.p, analytic, rtol=0, atol=1e-8), (
-        f"env wealth {env.p!r} != analytic product {analytic!r}"
-    )
-
-
-# ---------------------------------------------------------------- test 3
-def test_mu_converges_and_in_unit_interval():
-    """(3) μ_t iteration converges into (0, 1] for many random rebalances."""
-    rng = np.random.default_rng(7)
-    m1 = 9  # m + cash
-    for _ in range(2000):
-        w_prime = rng.dirichlet(np.ones(m1))
-        w = rng.dirichlet(np.ones(m1))
-        for c in (0.001, 0.0025, 0.01):
-            mu = pe.transaction_remainder(w_prime, w, c, c)
-            assert 0.0 < mu <= 1.0, f"mu={mu} out of (0,1] at c={c}"
-
-    # No-trade -> no cost -> mu == 1 exactly.
-    w = rng.dirichlet(np.ones(m1))
-    assert np.isclose(pe.transaction_remainder(w, w, 0.0025, 0.0025), 1.0, atol=1e-9)
-    # Zero commission -> mu == 1 exactly for any rebalance.
-    assert pe.transaction_remainder(rng.dirichlet(np.ones(m1)),
-                                    rng.dirichlet(np.ones(m1)), 0.0, 0.0) == 1.0
-
-
-# ---------------------------------------------------------------- test 4
-def test_all_cash_policy_zero_reward(dataset):
-    """(4) A hold-cash-only policy yields r_t ≈ 0 at every step."""
-    for split in ("train", "val", "test"):
-        env = pe.make_env(split, commission=0.0025, dataset=dataset,
-                          episode_length=None, random_start=False)
-        env.reset(seed=0)
-        a = _cash_biased_action(env.action_space.shape[0])
-        term = trunc = False
-        while not (term or trunc):
-            _, r, term, trunc, info = env.step(a)
-            assert abs(r) < 1e-6, f"cash reward {r} on split {split}"
-            assert np.isclose(info["mu"], 1.0, atol=1e-9)
-        # Wealth is preserved (no gains, no losses, no costs).
-        assert np.isclose(env.p, 1.0, atol=1e-6)
-
-
-# ---------------------------------------------------------------- guardrails
-def test_softmax_valid():
+def test_projection_is_shift_invariant_and_ordered():
     rng = np.random.default_rng(1)
-    for _ in range(1000):
-        w = pe.softmax(rng.uniform(-50, 50, size=9))
-        assert np.all(w >= 0.0)
-        assert np.isclose(w.sum(), 1.0, atol=1e-12)
+    a = rng.uniform(-1, 1, M + 1)
+    w = project_to_simplex(a, CFG.env.tau)
+    assert np.allclose(w, project_to_simplex(a + 0.3, CFG.env.tau))
+    assert np.argmax(w) == np.argmax(a)
 
 
-def test_observation_in_space(dataset):
-    env = pe.make_env("test", dataset=dataset, random_start=False)
-    obs, _ = env.reset(seed=0)
-    assert env.observation_space.contains(obs)
-    a = env.action_space.sample()
-    obs, _, _, _, _ = env.step(a)
-    assert env.observation_space.contains(obs)
+# ---- spaces and reset ----
+
+def test_spaces(env):
+    assert env.observation_space["tensor"].shape == \
+        (CFG.env.n_features, M, CFG.env.window)
+    assert env.observation_space["weights"].shape == (M + 1,)
+    assert env.action_space.shape == (M + 1,)
+    assert (env.action_space.low == -1).all() and (env.action_space.high == 1).all()
 
 
-def test_drift_identity_on_flat_returns():
-    """Eq. 7: with all y == 1, weights do not drift."""
-    w = np.array([0.2, 0.1, 0.3, 0.4])
-    y = np.ones(4)
-    assert np.allclose(pe.drifted_weights(w, y), w)
+def test_reset_starts_in_cash(env):
+    obs, _ = env.reset()
+    assert obs["weights"][0] == 1.0 and obs["weights"][1:].sum() == 0.0
+
+
+def test_episode_length_equals_split_length(ds):
+    for name, idx in ds["splits"].items():
+        e = PortfolioEnv(ds["X"], ds["y"], CFG, idx)
+        e.reset()
+        n, done = 0, False
+        while not done:
+            _, _, done, _, _ = e.step(np.zeros(M + 1))
+            n += 1
+        assert n == len(idx), name
+
+
+def test_weights_stay_on_the_simplex(env):
+    rng = np.random.default_rng(2)
+    env.reset()
+    done = False
+    while not done:
+        _, _, done, _, info = env.step(rng.uniform(-1, 1, M + 1))
+        w = info["weights"]
+        assert abs(w.sum() - 1.0) < 1e-9 and (w >= 0).all()
+
+
+# ---- UCRP equivalence, computed independently in pandas ----
+
+def _ucrp_pandas(ds, idx, c, k):
+    """Equal-weight rebalance every step, replicating the env recursion in pandas:
+        p_t = p_{t-1} * mu_t * (y_t . w_{t-1}),  w'_t = drift(w_{t-1}, y_t)."""
+    y = pd.DataFrame(ds["y"][idx]).astype(float).values
+    w_eq = np.full(M + 1, 1.0 / (M + 1))
+    w_prev = np.zeros(M + 1)
+    w_prev[0] = 1.0
+    p, rewards = 1.0, []
+    for t in range(len(idx)):
+        gross = float(y[t] @ w_prev)
+        w_d = drift(w_prev, y[t])
+        mu = float(transaction_remainder(w_d, w_eq, c, k))
+        p *= mu * gross
+        rewards.append(np.log(mu * gross))
+        w_prev = w_eq.copy()
+    return p, np.array(rewards)
+
+
+def test_constant_weight_policy_reproduces_ucrp(ds):
+    idx = ds["splits"]["validate"]
+    e = PortfolioEnv(ds["X"], ds["y"], CFG, idx)
+    e.reset()
+    action = np.zeros(M + 1)          # softmax of a constant -> exactly equal weights
+    rewards, done = [], False
+    while not done:
+        _, r, done, _, info = e.step(action)
+        rewards.append(r)
+    p_ref, r_ref = _ucrp_pandas(ds, idx, CFG.env.commission, CFG.env.mu_iterations)
+    assert abs(e.value - p_ref) < 1e-10
+    assert np.abs(np.array(rewards) - r_ref).max() < 1e-10
+
+
+def test_zero_cost_wealth_equals_product_of_gross_returns(ds):
+    """With c = 0 the env must reduce to plain compounding, no cost machinery."""
+    import copy
+    cfg0 = copy.deepcopy(CFG)
+    object.__setattr__(cfg0.env, "commission", 0.0)
+    idx = ds["splits"]["test"]
+    e = PortfolioEnv(ds["X"], ds["y"], cfg0, idx)
+    e.reset()
+    action = np.zeros(M + 1)
+    w_eq = np.full(M + 1, 1.0 / (M + 1))
+    y = ds["y"][idx].astype(float)
+    p, w_prev = 1.0, np.eye(M + 1)[0]
+    done = False
+    t = 0
+    while not done:
+        _, _, done, _, info = e.step(action)
+        p *= float(y[t] @ w_prev)
+        w_prev = w_eq
+        t += 1
+    assert abs(e.value - p) < 1e-10
+
+
+def test_mu_is_one_on_the_first_step_only_if_no_trade(ds):
+    idx = ds["splits"]["validate"]
+    e = PortfolioEnv(ds["X"], ds["y"], CFG, idx)
+    e.reset()
+    a = np.full(M + 1, -1.0)
+    a[0] = 1.0                              # stay in cash
+    _, _, _, _, info = e.step(a)
+    assert info["mu"] > 1 - 1e-3
+    assert info["turnover"] < 1e-3
+
+
+def test_info_reports_concentration(env):
+    env.reset()
+    _, _, _, _, info = env.step(np.zeros(M + 1))
+    assert abs(info["hhi"] - 1.0 / (M + 1)) < 1e-9
+    assert abs(info["entropy"] - np.log(M + 1)) < 1e-9
+    assert abs(info["max_weight"] - 1.0 / (M + 1)) < 1e-9
+
+
+# ---- SB3 integration guards ----
+
+def test_env_passes_sb3_env_checker(ds):
+    from stable_baselines3.common.env_checker import check_env
+    check_env(PortfolioEnv(ds["X"], ds["y"], CFG, ds["splits"]["validate"][:50]), warn=False)
+
+
+def test_tensor_subspace_is_not_treated_as_an_image(env):
+    """A (3, m, n) float Box trips SB3's image heuristic. If it were ever classed as an
+    image, SB3 would auto-wrap in VecTransposeImage and silently permute the axes the
+    EIIE extractor depends on."""
+    from stable_baselines3.common.preprocessing import is_image_space
+    assert not is_image_space(env.observation_space["tensor"])
+
+
+def test_vecenv_preserves_tensor_layout(ds):
+    from stable_baselines3.common.vec_env import DummyVecEnv
+    v = DummyVecEnv([lambda: PortfolioEnv(ds["X"], ds["y"], CFG, ds["splits"]["validate"])])
+    obs = v.reset()
+    assert obs["tensor"].shape == (1, CFG.env.n_features, M, CFG.env.window)

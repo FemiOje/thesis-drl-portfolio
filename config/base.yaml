@@ -1,0 +1,90 @@
+# Locked experiment configuration.
+# Changing any value here invalidates results already produced.
+# Every script reads this file; nothing is hard-coded.
+
+run:
+  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]   # 10 seeds = primary variance control
+  results_dir: results
+
+data:
+  source: yfinance          # yfinance | qlib  (see plan §3 — qlib US data is Yahoo data)
+  start: 2021-08-25
+  end: 2026-08-24           # trailing 5 years; ends on the last completed session
+  raw_dir: data/raw         # COMMITTED — reproducibility must not depend on a live API
+  processed_dir: data/processed
+  splits:
+    # Chronological 60/20/20, whole years. Validated as contiguous and
+    # non-overlapping at load time by src/config.py.
+    - {name: train,    start: 2021-08-25, end: 2024-08-24}   # ~756 d
+    - {name: validate, start: 2024-08-25, end: 2025-08-24}   # ~252 d
+    - {name: test,     start: 2025-08-25, end: 2026-08-24}   # ~252 d — scored ONCE
+
+universe:
+  n_assets: 8               # risky assets; +1 cash => 9-dim weight vector (Eq. 5)
+  as_of: 2021-08-25         # market-cap measurement date — resolves survivorship bias
+  correlation_gate: 0.70    # pre-registered; measured on TRAIN split only
+
+env:
+  window: 20                # n — lookback in trading days (one trading month)
+  n_features: 3             # close, high, low, each divided by latest close (Eq. 18)
+  tau: 5.0                  # softmax temperature. DO NOT LOWER without reading plan §2:
+                            # tau=1 silently caps any single asset at ~48%.
+  commission: 0.001         # c_s = c_p = 10 bps
+  mu_iterations: 5          # k in the Eq. 15 fixed-point iteration
+  initial_capital: 1.0
+
+agent:
+  gamma: 1.0                # ALL THREE agents. SB3 defaults to 0.99, which would
+                            # confound the learning rule with the planning horizon.
+  # Training budget is EQUALISED across all three: 60,000 optimiser updates of
+  # batch 50 each. The architecture, tau, gamma and cost model are already held
+  # identical, so budget must not be the one free axis. PPO and DDPG both consume
+  # 300,000 env steps to get there; PG replays the fixed 735-day train split and
+  # collects none. The arithmetic lives in src/config.gradient_steps() and is
+  # enforced at load time.
+  #
+  # share_features_extractor: false for BOTH. PG's extractor sees only the Eq. 21
+  # gradient; with PPO's default (true) the same 783 weights that emit the portfolio
+  # would also receive 0.5 * value-MSE gradients (ppo.py:260, vf_coef=0.5), so the
+  # controlled variable would be optimised differently in one arm. False is already
+  # SB3's DDPG default, and matches Liang, whose actor and critic convs live in
+  # different variable scopes in both ppo.py and ddpg.py. NOT from Jiang -- Jiang has
+  # no critic at all.
+  pg:
+    batch_size: 50
+    learning_rate: 3.0e-5   # Jiang Table B.1
+    l2: 1.0e-8
+    gradient_steps: 60000
+    eval_every: 1500        # -> 40 evaluations
+  ppo:
+    total_timesteps: 300000 # 600 rollouts x 10 epochs x 10 minibatches = 60,000
+    n_steps: 500
+    batch_size: 50
+    n_epochs: 10
+    eval_every_steps: 7500  # = 1500 gradient steps, so F1/F2/F4 share PG's x-axis
+    learning_rate: 3.0e-4   # SB3 default, set EXPLICITLY. Liang's values are unusable:
+                            # Table I says actor 1e-3 / critic 1e-1, ddpg.py says the
+                            # reverse, so neither is citable. Tune on validation.
+    share_features_extractor: false
+  ddpg:
+    total_timesteps: 300000 # 600 triggers x 100 gradient steps = 60,000
+    train_freq: 500         # env steps between updates
+    gradient_steps: 100     # updates per trigger
+    batch_size: 50
+    learning_starts: 250    # < train_freq, so the first trigger at step 500 fires
+    eval_every_steps: 7500
+    learning_rate: 1.0e-3   # SB3 default, set explicitly. See the ppo note above.
+    share_features_extractor: false
+    ou_theta: 0.15
+    ou_sigma: 0.20
+
+evaluation:
+  trading_days_per_year: 252
+  risk_free: irx            # irx | zero  — ^IRX 13-week T-bill, or 0 with stated assumption
+  bootstrap_samples: 10000
+
+sweeps:
+  commission: [0.0, 0.0005, 0.001, 0.0025, 0.005]
+  n_assets: [4, 8, 16]
+  tau: [2.0, 5.0, 10.0]     # tuned on VALIDATION only
+  basket_rank: [1, 2, 3]    # largest / 2nd / 3rd constituent per sector

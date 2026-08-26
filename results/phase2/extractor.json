@@ -1,0 +1,25 @@
+{
+  "tau": 5.0,
+  "gamma": 1.0,
+  "commission": 0.001,
+  "mu_iterations": 5,
+  "window": 20,
+  "n_features": 3,
+  "extractor": {
+    "M4": {
+      "n_params": 783,
+      "features_dim": 5,
+      "max_reachable_weight": 0.999818
+    },
+    "M8": {
+      "n_params": 783,
+      "features_dim": 9,
+      "max_reachable_weight": 0.999637
+    },
+    "M16": {
+      "n_params": 783,
+      "features_dim": 17,
+      "max_reachable_weight": 0.999274
+    }
+  }
+}
