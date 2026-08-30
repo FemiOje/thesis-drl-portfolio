@@ -1,4 +1,4 @@
-"""Universe selection rule + 0.70 correlation gate. See docs/IMPLEMENTATION_PLAN.md §0."""
+"""Universe selection rule + 0.70 correlation gate."""
 
 from pathlib import Path
 import pandas as pd

@@ -2,7 +2,6 @@
 #
 # REQUIRES PYTHON 3.10. numpy 1.24.3, pandas 2.0.3 and torch 2.1.0 publish no
 # cp312 wheels, so `pip install -r requirements.txt` fails outright on Python 3.12.
-# See docs/IMPLEMENTATION_PLAN.md §9.
 
 numpy==1.24.3
 pandas==2.0.3

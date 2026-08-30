@@ -6,7 +6,7 @@ Ojetokun Oluwafemi Akinwale
 A controlled comparison of three continuous-action deep reinforcement learning
 algorithms — **Policy Gradient (PG)**, **Proximal Policy Optimization (PPO)** and
 **Deep Deterministic Policy Gradient (DDPG)** — on an eight-asset S&P 500 portfolio
-under realistic transaction costs. All three agents share the same state
+under realistic transaction costs (10 bps commission per trade). All three agents share the same state
 representation, feature extractor, action projection, cost model, discount factor
 and number of optimiser updates; the only thing allowed to differ is the learning
 rule itself.
@@ -107,12 +107,13 @@ On the test split, none of the three agents beats UBAH or UCRP by a statisticall
 significant margin after Bonferroni correction across all 10 seeds — all three land
 close to the naive baselines' risk-adjusted return, with PG tracking them most
 closely (highest Sharpe/Sortino among the agents, lowest drawdown and turnover of
-the three). All three agents lose significantly to Markowitz and to BestStock (PPO's
-loss to BestStock does not reach significance). PPO reaches its return with far
-higher turnover (25.8% vs. ~1-2% for PG and DDPG) and a much more concentrated
-portfolio, consistent with a stochastic policy exploiting fewer, larger positions.
-On the validation split, by contrast, DDPG and PPO *do* beat UBAH/UCRP
-significantly — a validate/test divergence that is itself a finding: with only ~250
+the three). All three agents lose significantly to Markowitz and to BestStock.
+PPO reaches its return with far higher turnover (25.8% vs. ~1-2% for PG and DDPG)
+and a much more concentrated portfolio, consistent with a stochastic policy
+exploiting fewer, larger positions.
+On the validation split, by contrast, DDPG beats both UBAH and UCRP significantly
+and PPO beats UBAH (its edge over UCRP falls just short after Bonferroni
+correction, p=0.055) — a validate/test divergence that is itself a finding: with only ~250
 trading days per split, checkpoint selection and significance both have limited
 power, and results should be read as indicative rather than conclusive (see
 Limitations below). Full per-seed curves, significance tables and figures are in
@@ -157,7 +158,7 @@ scripts/    numbered entry points:
               05_train_sb3.py     train PPO or DDPG, select on validation, backtest
               06_figures.py       regenerate the figure suite from committed run directories
               07_stats.py         paired t-tests, Bonferroni, bootstrap CIs
-tests/      the gates (config, data, env, costs, extractors, agents, stats, plots)
+tests/      the gates (config, data, env, costs, extractors, baselines, agents, stats, plots)
 results/    one directory per run — meta.json, per-seed CSVs, aggregated metrics.csv,
             stats_<split>.csv, and results/figures/ for the full figure suite
 ```

@@ -80,7 +80,7 @@ def test_ten_seeds(cfg):
 
 
 # --------------------------------------------------------------------------- #
-# The tau guard — IMPLEMENTATION_PLAN.md §2
+# The tau guard
 # --------------------------------------------------------------------------- #
 
 def test_max_reachable_weight_closed_form():
